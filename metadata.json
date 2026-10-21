@@ -1,0 +1,6 @@
+{
+  "name": "ApexQuant - Institutional Crypto Sniper & Deep Reasoning Engine",
+  "description": "Production-grade institutional crypto algorithmic trading terminal connecting to Binance Futures with BTC Regime alignment, spatial clearance anti-bad-location gate, institutional orderflow analysis, and smart multi-stage exits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
