@@ -221,3 +221,38 @@ export interface PlatformSettings {
   circuitBreakerPct: number; // e.g. -3.0%
   trailingStopMultiplier: number;
 }
+
+export type ErrorSeverity = 'FATAL' | 'ERROR' | 'WARN' | 'INFO';
+
+export type SubsystemType =
+  | 'BINANCE_REST_API'
+  | 'BINANCE_WS'
+  | 'QUANT_ENGINE'
+  | 'ORDERFLOW_CALCULATOR'
+  | 'SPATIAL_ENGINE'
+  | 'NETWORK_FEED'
+  | 'SYSTEM_GUARD'
+  | 'UI_RUNTIME';
+
+export interface SystemErrorLog {
+  id: string;
+  timestamp: number;
+  code: string;
+  severity: ErrorSeverity;
+  subsystem: SubsystemType;
+  message: string;
+  details?: string;
+  status: 'ACTIVE' | 'RESOLVED' | 'SUPPRESSED';
+  retryCount?: number;
+  autoRecovered?: boolean;
+}
+
+export interface SystemHealthState {
+  status: 'OPERATIONAL' | 'DEGRADED' | 'WARNING' | 'CRITICAL';
+  feedLatencyMs: number;
+  lastPingTimestamp: number;
+  activeErrorsCount: number;
+  warningsCount: number;
+  totalErrorsLogged: number;
+  uptimeSeconds: number;
+}

@@ -7,6 +7,7 @@ import { ForensicAuditLog } from './components/ForensicAuditLog';
 import { ClosedTradesHistory } from './components/ClosedTradesHistory';
 import { ExpectancyMathModal } from './components/ExpectancyMathModal';
 import { SettingsModal } from './components/SettingsModal';
+import { SystemErrorLogModal } from './components/SystemErrorLogModal';
 import {
   BTCContext,
   PairMarketState,
@@ -14,6 +15,8 @@ import {
   AuditLog,
   PlatformStats,
   PlatformSettings,
+  SystemErrorLog,
+  SystemHealthState,
 } from './types/quant';
 
 export default function App() {
@@ -77,8 +80,20 @@ export default function App() {
 
   const [isExpectancyOpen, setIsExpectancyOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isErrorLogOpen, setIsErrorLogOpen] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isTriggering, setIsTriggering] = useState(false);
+  const [isPingingFeed, setIsPingingFeed] = useState(false);
+  const [systemErrors, setSystemErrors] = useState<SystemErrorLog[]>([]);
+  const [systemHealth, setSystemHealth] = useState<SystemHealthState>({
+    status: 'OPERATIONAL',
+    feedLatencyMs: 28,
+    lastPingTimestamp: Date.now(),
+    activeErrorsCount: 0,
+    warningsCount: 0,
+    totalErrorsLogged: 0,
+    uptimeSeconds: 0,
+  });
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -89,7 +104,7 @@ export default function App() {
   // Poll backend endpoints
   const fetchAllData = useCallback(async () => {
     try {
-      const [btcRes, pairsRes, posRes, tradesRes, logsRes, statsRes, settingsRes] = await Promise.all([
+      const [btcRes, pairsRes, posRes, tradesRes, logsRes, statsRes, settingsRes, errorsRes] = await Promise.all([
         fetch('/api/market-context'),
         fetch('/api/pairs'),
         fetch('/api/positions'),
@@ -97,6 +112,7 @@ export default function App() {
         fetch('/api/audit-logs'),
         fetch('/api/stats'),
         fetch('/api/settings'),
+        fetch('/api/system-errors'),
       ]);
 
       if (btcRes.ok) setBtcContext(await btcRes.json());
@@ -106,6 +122,11 @@ export default function App() {
       if (logsRes.ok) setAuditLogs(await logsRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
       if (settingsRes.ok) setSettings(await settingsRes.json());
+      if (errorsRes.ok) {
+        const errorData = await errorsRes.json();
+        setSystemErrors(errorData.errors || []);
+        if (errorData.health) setSystemHealth(errorData.health);
+      }
     } catch {
       // Quiet background retry
     }
@@ -200,6 +221,57 @@ export default function App() {
     }
   };
 
+  const handleClearErrors = async () => {
+    try {
+      const res = await fetch('/api/system-errors/clear', { method: 'POST' });
+      if (res.ok) {
+        setSystemErrors([]);
+        setSystemHealth(prev => ({ ...prev, activeErrorsCount: 0, warningsCount: 0, totalErrorsLogged: 0, status: 'OPERATIONAL' }));
+        showNotification('تم مسح سجل أخطاء وتشخيص النظام بنجاح', 'success');
+      }
+    } catch {
+      showNotification('Failed to clear error logs', 'error');
+    }
+  };
+
+  const handleSimulateError = async (type: 'RATE_LIMIT' | 'FEED_TIMEOUT' | 'CALC_GUARD') => {
+    try {
+      const res = await fetch('/api/system-errors/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSystemErrors(data.errors);
+        setSystemHealth(data.health);
+        showNotification(`تم تسجيل محاكاة الخطأ التجريبي بنجاح (${type})`, 'info');
+      }
+    } catch {
+      showNotification('Simulation error trigger failed', 'error');
+    }
+  };
+
+  const handlePingFeed = async () => {
+    setIsPingingFeed(true);
+    try {
+      const res = await fetch('/api/system-errors/ping', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setSystemHealth(prev => ({
+          ...prev,
+          feedLatencyMs: data.latencyMs,
+          lastPingTimestamp: Date.now(),
+        }));
+        showNotification(`Binance Futures ping: ${data.latencyMs}ms (${data.status})`, 'success');
+      }
+    } catch {
+      showNotification('Ping check failed', 'error');
+    } finally {
+      setIsPingingFeed(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
       {/* Institutional Header */}
@@ -214,6 +286,9 @@ export default function App() {
         onManualScan={handleManualScan}
         onResetCircuitBreaker={handleResetCircuitBreaker}
         isScanning={isScanning}
+        onOpenErrorLogs={() => setIsErrorLogOpen(true)}
+        activeErrorsCount={systemHealth.activeErrorsCount}
+        systemStatus={systemHealth.status}
       />
 
       {/* Main Trading Terminal Dashboard */}
@@ -268,6 +343,17 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         onSaveSettings={handleUpdateSettings}
+      />
+
+      <SystemErrorLogModal
+        isOpen={isErrorLogOpen}
+        onClose={() => setIsErrorLogOpen(false)}
+        errors={systemErrors}
+        health={systemHealth}
+        onClearErrors={handleClearErrors}
+        onSimulateError={handleSimulateError}
+        onPingFeed={handlePingFeed}
+        isPinging={isPingingFeed}
       />
 
       {/* Terminal Footer */}

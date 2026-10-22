@@ -10,6 +10,7 @@ import {
   HelpCircle,
   Play,
   Pause,
+  Terminal,
 } from 'lucide-react';
 import { BTCContext, PlatformStats, PlatformSettings } from '../types/quant';
 
@@ -24,6 +25,9 @@ interface HeaderProps {
   onManualScan: () => void;
   onResetCircuitBreaker: () => void;
   isScanning: boolean;
+  onOpenErrorLogs: () => void;
+  activeErrorsCount?: number;
+  systemStatus?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -37,6 +41,9 @@ export const Header: React.FC<HeaderProps> = ({
   onManualScan,
   onResetCircuitBreaker,
   isScanning,
+  onOpenErrorLogs,
+  activeErrorsCount = 0,
+  systemStatus = 'OPERATIONAL',
 }) => {
   const getRegimeColor = (regime: string) => {
     switch (regime) {
@@ -209,6 +216,23 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <span className="text-[10px] text-indigo-400 font-mono hidden sm:inline">MAX</span>
             <span>{settings.maxLeverage || 5}x LEV</span>
+          </button>
+
+          {/* System Diagnostics & Error Surveillance Screen */}
+          <button
+            onClick={onOpenErrorLogs}
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-mono flex items-center gap-1.5 cursor-pointer transition-all ${
+              activeErrorsCount > 0
+                ? 'bg-rose-950/70 text-rose-300 border-rose-600 animate-pulse shadow-sm shadow-rose-900/50'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700 hover:text-white'
+            }`}
+            title="System Error Diagnostics & Feed Surveillance / شاشة سجل أخطاء النظام"
+          >
+            <Terminal className={`h-3.5 w-3.5 ${activeErrorsCount > 0 ? 'text-rose-400' : 'text-cyan-400'}`} />
+            <span className="hidden sm:inline font-bold">
+              {activeErrorsCount > 0 ? `ERRORS: ${activeErrorsCount}` : 'SYS LOGS'}
+            </span>
+            <span className={`h-1.5 w-1.5 rounded-full ${activeErrorsCount > 0 ? 'bg-rose-400 animate-ping' : 'bg-emerald-400'}`} />
           </button>
 
           {/* Settings */}
