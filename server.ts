@@ -1,6 +1,6 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import {
   Candle,
@@ -13,12 +13,12 @@ import {
   GateEvaluation,
   SystemErrorLog,
   SystemHealthState,
-} from './src/types/quant';
+} from './src/types/quant.ts';
 import {
   evaluateBTCRegime,
   evaluateStrictEntryPolicies,
   evaluateExitBrain,
-} from './src/quant/engine';
+} from './src/quant/engine.ts';
 import {
   calculateSpatialMetrics,
   computeOrderflowMetrics,
@@ -26,14 +26,19 @@ import {
   calculateRVOL,
   calculateATR,
   calculateEMA,
-} from './src/quant/indicators';
+} from './src/quant/indicators.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const app = express();
 app.use(express.json());
+
+// Immediate health check endpoints for cloud deployment readiness probes (Deplexo, Cloud Run, Kubernetes)
+app.get('/health', (_req, res) => res.status(200).send('OK'));
+app.get('/healthz', (_req, res) => res.status(200).send('OK'));
+app.get('/ping', (_req, res) => res.status(200).send('PONG'));
 
 // Tracked universe of institutional pairs
 const TRACKED_SYMBOLS = [
@@ -1215,12 +1220,18 @@ app.post('/api/system-errors/client-report', (req, res) => {
 
 // Setup Vite middleware in dev or static files in production
 async function startServer() {
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+  const distDir = path.resolve(__dirname, 'dist');
+  const hasDist = fs.existsSync(path.resolve(distDir, 'index.html'));
+  const isProd = process.env.NODE_ENV === 'production' || hasDist;
+
+  if (isProd && hasDist) {
+    app.use(express.static(distDir));
     app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.resolve(distDir, 'index.html'));
     });
   } else {
+    // Dynamic import to prevent loading Vite compiler into memory during production
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -1228,8 +1239,19 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[ApexQuant] Engine and Full-Stack Platform active on port ${PORT}`);
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[ApexQuant] Engine and Full-Stack Platform active on port ${PORT} (mode: ${isProd ? 'production' : 'development'})`);
+  });
+
+  // Graceful shutdown handlers for container platforms (SIGTERM/SIGINT)
+  process.on('SIGTERM', () => {
+    console.log('[ApexQuant] Received SIGTERM signal, exiting cleanly...');
+    server.close(() => process.exit(0));
+  });
+
+  process.on('SIGINT', () => {
+    console.log('[ApexQuant] Received SIGINT signal, exiting cleanly...');
+    server.close(() => process.exit(0));
   });
 }
 
