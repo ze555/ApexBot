@@ -201,6 +201,16 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline font-mono">3:1 Math Edge</span>
           </button>
 
+          {/* Active Leverage Cap Badge */}
+          <button
+            onClick={onOpenSettings}
+            className="px-2.5 py-1.5 rounded-lg bg-indigo-950/70 hover:bg-indigo-900/80 border border-indigo-800 text-indigo-300 text-xs font-mono font-bold flex items-center gap-1 cursor-pointer transition-colors"
+            title="Institutional Leverage Cap (Click to adjust in Settings) / اضغط لتعديل الرافعة المالية"
+          >
+            <span className="text-[10px] text-indigo-400 font-mono hidden sm:inline">MAX</span>
+            <span>{settings.maxLeverage || 5}x LEV</span>
+          </button>
+
           {/* Settings */}
           <button
             onClick={onOpenSettings}

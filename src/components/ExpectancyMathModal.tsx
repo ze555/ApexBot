@@ -80,6 +80,22 @@ export const ExpectancyMathModal: React.FC<ExpectancyMathModalProps> = ({ isOpen
           </div>
         </div>
 
+        {/* Leverage Protocol Bar */}
+        <div className="bg-slate-950/90 border border-indigo-500/30 rounded-xl p-3 my-3 flex items-center justify-between gap-3 text-xs font-mono">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 font-bold">
+              1x - 5x LEVERAGE
+            </span>
+            <span className="text-slate-300">
+              <strong className="text-white">Quantitative Sizing: </strong>
+              Leverage scales strictly by Stop Loss distance so you always risk exactly 1% ($10 per $1,000 account).
+            </span>
+          </div>
+          <span className="text-emerald-400 font-bold hidden sm:block shrink-0">
+            ✓ Liquidation Mathematically Immune
+          </span>
+        </div>
+
         {/* The Math Formula Card */}
         <div className="bg-slate-950 border border-cyan-500/30 rounded-xl p-4 my-4 font-mono text-xs">
           <h3 className="text-cyan-400 font-bold mb-2 flex items-center gap-1.5">

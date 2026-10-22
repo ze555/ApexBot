@@ -26,26 +26,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-6 text-slate-200 shadow-2xl relative">
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
-        >
-          <X className="h-5 w-5" />
-        </button>
-
-        <div className="flex items-center gap-3 pb-4 border-b border-slate-800">
-          <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-            <Sliders className="h-5 w-5" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col text-slate-200 shadow-2xl relative my-auto">
+        {/* Modal Header */}
+        <div className="p-5 pb-3 border-b border-slate-800 shrink-0 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+              <Sliders className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-white">QUANTITATIVE PLATFORM SETTINGS</h2>
+              <p className="text-xs text-slate-400">Risk Allocation & Execution Governance Parameters</p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-base font-bold text-white">QUANTITATIVE PLATFORM SETTINGS</h2>
-            <p className="text-xs text-slate-400">Risk Allocation & Execution Governance Parameters</p>
-          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 mt-4 text-xs font-mono">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0">
+          {/* Scrollable Form Body */}
+          <div className="p-5 overflow-y-auto flex-1 min-h-0 space-y-4 text-xs font-mono scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-slate-900">
           {/* Virtual Capital Control */}
           <div className="p-3.5 rounded-xl bg-slate-950 border border-cyan-500/30 shadow-sm">
             <div className="flex items-center justify-between mb-1.5">
@@ -143,7 +147,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
             <div className="flex justify-between items-center mb-1">
               <div>
-                <span className="text-white font-bold block">Institutional Leverage Cap (الرافعة المالية القصوى)</span>
+                <span className="text-white font-bold block">Institutional Leverage Cap (Max Exposure)</span>
                 <span className="text-[11px] text-slate-400">Controls maximum notional exposure per trade</span>
               </div>
               <span className="font-bold text-sm font-mono px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
@@ -211,17 +215,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
 
-          <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+          </div>
+
+          {/* Pinned Modal Footer */}
+          <div className="p-4 border-t border-slate-800 shrink-0 bg-slate-900/95 flex justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer font-bold"
+              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer font-bold text-xs"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold flex items-center gap-1.5 cursor-pointer shadow-lg shadow-cyan-500/20"
+              className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-cyan-500/20"
             >
               <Save className="h-4 w-4" />
               <span>Save Parameters</span>
