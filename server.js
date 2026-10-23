@@ -186,9 +186,13 @@ function calculateSpatialMetrics(candles15m, currentPrice) {
   const atr14 = atrs.length > 0 ? atrs[atrs.length - 1] : currentPrice * 8e-3;
   const closes = windowCandles.map((c) => c.close);
   const rsi = calculateRSI(closes, 14);
-  const expansionDistanceFromSupp = currentPrice - nearestSupport;
-  const expansionAtrMult = atr14 > 0 ? expansionDistanceFromSupp / atr14 : 0;
-  const isLateExpansion = expansionAtrMult > 1.4 || rsi > 72 || rsi < 28;
+  const expansionUpDistance = Math.max(0, currentPrice - nearestSupport);
+  const expansionUpAtrMult = atr14 > 0 ? expansionUpDistance / atr14 : 0;
+  const expansionDownDistance = Math.max(0, nearestResistance - currentPrice);
+  const expansionDownAtrMult = atr14 > 0 ? expansionDownDistance / atr14 : 0;
+  const isLateExpansionLong = expansionUpAtrMult > 1.4 || rsi > 72;
+  const isLateExpansionShort = expansionDownAtrMult > 1.4 || rsi < 28;
+  const isLateExpansion = isLateExpansionLong || isLateExpansionShort;
   let spatialStatus = "CLEAR";
   if (isAtResistance || isAtSupport) {
     spatialStatus = "BAD_LOCATION";
@@ -203,11 +207,12 @@ function calculateSpatialMetrics(candles15m, currentPrice) {
     isAtResistance,
     isAtSupport,
     isLateExpansion,
-    expansionAtrMult: Math.round(expansionAtrMult * 100) / 100,
+    expansionAtrMult: Math.round(expansionUpAtrMult * 100) / 100,
+    expansionDownAtrMult: Math.round(expansionDownAtrMult * 100) / 100,
     rsi: Math.round(rsi * 10) / 10,
     atr14: Math.round(atr14 * 1e4) / 1e4,
     spatialStatus,
-    retestTargetLevel: isLateExpansion ? expansionAtrMult > 1.4 ? nearestSupport + atr14 * 0.5 : void 0 : void 0
+    retestTargetLevel: isLateExpansionLong ? nearestSupport + atr14 * 0.5 : isLateExpansionShort ? nearestResistance - atr14 * 0.5 : void 0
   };
 }
 function computeOrderflowMetrics(candles, openInterestHistory, fundingRate = 1e-4) {
@@ -426,12 +431,13 @@ function evaluateStrictEntryPolicies(params) {
       gateDetails: { expansionAtrMult: spatial.expansionAtrMult, rsi: spatial.rsi }
     };
   }
-  if (candidateSide === "SHORT" && (spatial.expansionAtrMult > 1.4 || spatial.rsi < 28)) {
+  const downExpansion = spatial.expansionDownAtrMult ?? spatial.expansionAtrMult;
+  if (candidateSide === "SHORT" && (downExpansion > 1.4 || spatial.rsi < 28)) {
     return {
       allowed: false,
       blockedBy: "LATE_EXPANSION",
-      reason: `LATE_EXPANSION Detected: Asset extended ${spatial.expansionAtrMult.toFixed(2)}x ATR downward (RSI: ${spatial.rsi}). Selling overextended bottom prohibited; WAITING_FOR_RETEST.`,
-      gateDetails: { expansionAtrMult: spatial.expansionAtrMult, rsi: spatial.rsi }
+      reason: `LATE_EXPANSION Detected: Asset extended ${downExpansion.toFixed(2)}x ATR downward from resistance (RSI: ${spatial.rsi}). Selling overextended bottom prohibited; WAITING_FOR_RETEST.`,
+      gateDetails: { expansionAtrMult: downExpansion, rsi: spatial.rsi }
     };
   }
   const isAltcoin = symbol !== "BTCUSDT";
@@ -769,326 +775,24 @@ var settings = {
   trailingStopMultiplier: 1.5
 };
 var stats = {
-  portfolioBalance: 1044.9,
+  portfolioBalance: 1e3,
   startOfDayBalance: 1e3,
-  dailyRealizedPnl: 36.5,
-  dailyUnrealizedPnl: 8.4,
-  dailyTotalPnl: 44.9,
+  dailyRealizedPnl: 0,
+  dailyUnrealizedPnl: 0,
+  dailyTotalPnl: 0,
   dailyDrawdownPct: 0,
   circuitBreakerTripped: false,
   circuitBreakerThresholdPct: -3,
-  totalTrades: 12,
-  winningTrades: 9,
-  losingTrades: 3,
-  winRatePct: 75,
-  totalRealizedR: 12.85,
-  averageWinR: 1.62,
-  averageLossR: -0.34,
-  // Due to Smart Early Invalidation Cuts!
-  profitFactor: 3.85,
-  savedCapitalUsd: 48
+  totalTrades: 0,
+  winningTrades: 0,
+  losingTrades: 0,
+  winRatePct: 0,
+  totalRealizedR: 0,
+  averageWinR: 0,
+  averageLossR: 0,
+  profitFactor: 0,
+  savedCapitalUsd: 0
 };
-function seedInitialTrades() {
-  const baseTime = Date.now() - 864e5 * 2;
-  const sampleClosed = [
-    {
-      id: "trade-seed-1",
-      symbol: "BTCUSDT",
-      side: "LONG",
-      entryPrice: 80800,
-      currentPrice: 82500,
-      initialQuantity: 0.015,
-      currentQuantity: 0,
-      entryTime: baseTime + 36e5 * 4,
-      stopLoss: 80100,
-      initialStopLoss: 80100,
-      riskDistance: 700,
-      stage: "STAGE_RUNNER_TRAILING",
-      realizedPnl: 24.2,
-      unrealizedPnl: 0,
-      currentR: 2.42,
-      peakR: 2.65,
-      partialCloses: [
-        { stage: "TP1 (+0.75R)", price: 81325, quantityPct: 40, pnlUsd: 3.15, pnlR: 0.75, timestamp: baseTime + 36e5 * 5 },
-        { stage: "TP2 (+1.80R)", price: 82060, quantityPct: 35, pnlUsd: 6.62, pnlR: 1.8, timestamp: baseTime + 36e5 * 7 }
-      ],
-      status: "CLOSED",
-      closeReason: "RUNNER_TRAIL",
-      qualityRating: "EXEMPLARY_SNIPER",
-      exitPrice: 82500,
-      exitTime: baseTime + 36e5 * 12,
-      notes: "Clean macro breakout. All 3 stages captured. Runner exited via adaptive ATR trail."
-    },
-    {
-      id: "trade-seed-2",
-      symbol: "SOLUSDT",
-      side: "LONG",
-      entryPrice: 107.2,
-      currentPrice: 106.1,
-      initialQuantity: 2.9,
-      currentQuantity: 0,
-      entryTime: baseTime + 36e5 * 14,
-      stopLoss: 103.8,
-      initialStopLoss: 103.8,
-      riskDistance: 3.4,
-      stage: "STAGE_INITIAL",
-      realizedPnl: -3.2,
-      unrealizedPnl: 0,
-      currentR: -0.32,
-      peakR: 0.15,
-      partialCloses: [],
-      status: "CLOSED",
-      closeReason: "EARLY_INVALIDATION",
-      qualityRating: "DISCIPLINED_EARLY_CUT",
-      exitPrice: 106.1,
-      exitTime: baseTime + 36e5 * 15,
-      notes: "Smart Early Invalidation Cut executed at -0.32R (2 consecutive 15m closes below EMA21). Saved $6.80 of risk capital!"
-    },
-    {
-      id: "trade-seed-3",
-      symbol: "ETHUSDT",
-      side: "LONG",
-      entryPrice: 2380,
-      currentPrice: 2445,
-      initialQuantity: 0.28,
-      currentQuantity: 0,
-      entryTime: baseTime + 36e5 * 18,
-      stopLoss: 2345,
-      initialStopLoss: 2345,
-      riskDistance: 35,
-      stage: "STAGE_TP2_EXPANDED",
-      realizedPnl: 18.5,
-      unrealizedPnl: 0,
-      currentR: 1.85,
-      peakR: 2.1,
-      partialCloses: [
-        { stage: "TP1 (+0.75R)", price: 2406, quantityPct: 40, pnlUsd: 2.9, pnlR: 0.75, timestamp: baseTime + 36e5 * 19 },
-        { stage: "TP2 (+1.80R)", price: 2443, quantityPct: 35, pnlUsd: 6.3, pnlR: 1.8, timestamp: baseTime + 36e5 * 21 }
-      ],
-      status: "CLOSED",
-      closeReason: "EXHAUSTION_EXIT",
-      qualityRating: "EXEMPLARY_SNIPER",
-      exitPrice: 2445,
-      exitTime: baseTime + 36e5 * 24,
-      notes: "Peak Profit Catcher: Sharp CVD divergence + contracting OI detected at +1.85R. Exited before localized reversal."
-    },
-    {
-      id: "trade-seed-4",
-      symbol: "LINKUSDT",
-      side: "LONG",
-      entryPrice: 12.45,
-      currentPrice: 12.28,
-      initialQuantity: 18,
-      currentQuantity: 0,
-      entryTime: baseTime + 36e5 * 26,
-      stopLoss: 11.9,
-      initialStopLoss: 11.9,
-      riskDistance: 0.55,
-      stage: "STAGE_INITIAL",
-      realizedPnl: -3.1,
-      unrealizedPnl: 0,
-      currentR: -0.31,
-      peakR: 0.1,
-      partialCloses: [],
-      status: "CLOSED",
-      closeReason: "EARLY_INVALIDATION",
-      qualityRating: "DISCIPLINED_EARLY_CUT",
-      exitPrice: 12.28,
-      exitTime: baseTime + 36e5 * 27,
-      notes: "Smart Early Invalidation Cut executed at -0.31R (counter orderflow CVD spike). Saved $6.90 of risk capital!"
-    },
-    {
-      id: "trade-seed-5",
-      symbol: "AVAXUSDT",
-      side: "LONG",
-      entryPrice: 9.35,
-      currentPrice: 9.68,
-      initialQuantity: 40,
-      currentQuantity: 0,
-      entryTime: baseTime + 36e5 * 29,
-      stopLoss: 9.1,
-      initialStopLoss: 9.1,
-      riskDistance: 0.25,
-      stage: "STAGE_TP1_LOCKED",
-      realizedPnl: 13.2,
-      unrealizedPnl: 0,
-      currentR: 1.32,
-      peakR: 1.4,
-      partialCloses: [
-        { stage: "TP1 (+0.75R)", price: 9.54, quantityPct: 40, pnlUsd: 3.04, pnlR: 0.75, timestamp: baseTime + 36e5 * 30 }
-      ],
-      status: "CLOSED",
-      closeReason: "TP1_SL",
-      qualityRating: "EXEMPLARY_SNIPER",
-      exitPrice: 9.4,
-      exitTime: baseTime + 36e5 * 33,
-      notes: "TP1 secured (+0.75R). Pulled back to +0.20R guaranteed breakeven floor. Risk zero, banked profit."
-    }
-  ];
-  closedTrades = sampleClosed;
-  activePositions = [
-    {
-      id: "active-pos-1",
-      symbol: "BTCUSDT",
-      side: "LONG",
-      entryPrice: 82100,
-      currentPrice: 82580,
-      initialQuantity: 0.016,
-      currentQuantity: 0.01,
-      // 40% closed at TP1
-      entryTime: Date.now() - 36e5 * 2.5,
-      stopLoss: 82220,
-      // Locked at +0.20R floor
-      initialStopLoss: 81500,
-      riskDistance: 600,
-      leverage: 1.8,
-      // 1.8x effective institutional leverage
-      stage: "STAGE_TP1_LOCKED",
-      realizedPnl: 3,
-      unrealizedPnl: 4.8,
-      currentR: 0.8,
-      peakR: 0.85,
-      partialCloses: [
-        { stage: "TP1 (+0.75R)", price: 82550, quantityPct: 40, pnlUsd: 3, pnlR: 0.75, timestamp: Date.now() - 36e5 }
-      ],
-      status: "OPEN",
-      qualityRating: "EXEMPLARY_SNIPER",
-      notes: "TP1 reached (+0.75R). 40% locked. Stop Loss moved to Entry + 0.20R ($82,220). Free ride on remaining position."
-    },
-    {
-      id: "active-pos-2",
-      symbol: "SOLUSDT",
-      side: "LONG",
-      entryPrice: 105.4,
-      currentPrice: 106.14,
-      initialQuantity: 8.3,
-      currentQuantity: 8.3,
-      entryTime: Date.now() - 18e5,
-      stopLoss: 104.2,
-      initialStopLoss: 104.2,
-      riskDistance: 1.2,
-      leverage: 2.5,
-      // 2.5x effective institutional leverage
-      stage: "STAGE_INITIAL",
-      realizedPnl: 0,
-      unrealizedPnl: 6.14,
-      currentR: 0.62,
-      peakR: 0.68,
-      partialCloses: [],
-      status: "OPEN",
-      qualityRating: "GOOD_ENTRY",
-      notes: "Approaching TP1 (+0.75R target: $106.30). Orderflow bullish."
-    }
-  ];
-  auditLogs = [
-    {
-      id: "audit-seed-1",
-      timestamp: Date.now() - 12e4,
-      symbol: "ETHUSDT",
-      side: "SHORT",
-      gate: "REGIME_LOCK",
-      status: "BLOCKED",
-      headline: "\u{1F6E1}\uFE0F [REGIME LOCK] SHORT prohibited: BTC is BULL_STRONG",
-      reason: "Strict Bull Blocker Active: 100% of SHORT trades blocked while BTC macro trend is BULL_STRONG. Zero counter-trend positions allowed.",
-      metricsSnapshot: {
-        price: 2715,
-        btcRegime: "BULL_STRONG",
-        symbolRegime: "TREND_UP",
-        distResPct: 1.45,
-        distSuppPct: 3.2,
-        rvol: 1.15,
-        adx: 24.5,
-        cvdSlope15m: 85,
-        oiChgPct: 1.2
-      }
-    },
-    {
-      id: "audit-seed-2",
-      timestamp: Date.now() - 95e3,
-      symbol: "DOGEUSDT",
-      side: "LONG",
-      gate: "RANGE_LONG_TRAP",
-      status: "BLOCKED",
-      headline: "\u{1F6E1}\uFE0F [RANGE LONG TRAP] DOGEUSDT in RANGE while BTC in BULL",
-      reason: "RANGE Long Trap Blocker: DOGEUSDT is consolidating in RANGE while BTC is in BULL_STRONG. Forensic liquidity drain into BTC consistently fails altcoin breakouts.",
-      metricsSnapshot: {
-        price: 0.148,
-        btcRegime: "BULL_STRONG",
-        symbolRegime: "RANGE",
-        distResPct: 0.85,
-        distSuppPct: 1.1,
-        rvol: 0.95,
-        adx: 16.2,
-        cvdSlope15m: -12,
-        oiChgPct: -0.4
-      }
-    },
-    {
-      id: "audit-seed-3",
-      timestamp: Date.now() - 65e3,
-      symbol: "AVAXUSDT",
-      side: "LONG",
-      gate: "BAD_LOCATION",
-      status: "BLOCKED",
-      headline: "\u{1F6E1}\uFE0F [BAD LOCATION] Price within 0.18% of major resistance",
-      reason: "BAD_LOCATION LONG Prohibited: AVAXUSDT price ($30.45) is within 0.18% of structural 30-candle swing resistance ($30.505). Clearance < 0.25%. Entry into resistance is strictly prohibited.",
-      metricsSnapshot: {
-        price: 30.45,
-        btcRegime: "BULL_STRONG",
-        symbolRegime: "TREND_UP",
-        distResPct: 0.18,
-        distSuppPct: 4.8,
-        rvol: 1.65,
-        adx: 26,
-        cvdSlope15m: 45,
-        oiChgPct: 0.9
-      }
-    },
-    {
-      id: "audit-seed-4",
-      timestamp: Date.now() - 35e3,
-      symbol: "SUIUSDT",
-      side: "LONG",
-      gate: "LATE_EXPANSION",
-      status: "BLOCKED",
-      headline: "\u23F1\uFE0F [LATE EXPANSION] Extended 1.65x ATR from level (RSI: 75.2)",
-      reason: "LATE_EXPANSION Timing Gate: Price has expanded 1.65x ATR without a healthy pullback. Buying overextended top strictly prohibited; Status: WAITING_FOR_RETEST.",
-      metricsSnapshot: {
-        price: 2.15,
-        btcRegime: "BULL_STRONG",
-        symbolRegime: "TREND_UP",
-        distResPct: 3.5,
-        distSuppPct: 5.2,
-        rvol: 2.4,
-        adx: 32.5,
-        cvdSlope15m: 110,
-        oiChgPct: 2.5
-      }
-    },
-    {
-      id: "audit-seed-5",
-      timestamp: Date.now() - 15e3,
-      symbol: "LINKUSDT",
-      side: "LONG",
-      gate: "CONFLICTED_ORDERFLOW",
-      status: "BLOCKED",
-      headline: "\u26A0\uFE0F [FLOW CONFLICT] Price rising but CVD slope is negative",
-      reason: "Conflicted Orderflow Blocker: Orderflow state is MIXED (CVD 15m slope: -42.5). Institutional backing unconfirmed. Passive limit selling detected.",
-      metricsSnapshot: {
-        price: 18.35,
-        btcRegime: "BULL_STRONG",
-        symbolRegime: "TRANSITION",
-        distResPct: 1.2,
-        distSuppPct: 2.4,
-        rvol: 1.1,
-        adx: 19.4,
-        cvdSlope15m: -42.5,
-        oiChgPct: -0.15
-      }
-    }
-  ];
-}
-seedInitialTrades();
 function generateSyntheticCandles(symbol, count = 60) {
   const basePrices = {
     BTCUSDT: 68450,
@@ -1221,8 +925,15 @@ function evaluatePairState(symbol, candles) {
     candidateSide = "SHORT";
   }
   let sniperScore = 40;
-  if (btcContext.regime === "BULL_STRONG" && candidateSide === "LONG") sniperScore += 25;
-  if (orderflow.orderflowState === "BULLISH" && candidateSide === "LONG") sniperScore += 20;
+  if (candidateSide === "LONG") {
+    if (btcContext.regime === "BULL_STRONG") sniperScore += 25;
+    else if (btcContext.regime === "BULL_WEAK") sniperScore += 15;
+    if (orderflow.orderflowState === "BULLISH") sniperScore += 20;
+  } else if (candidateSide === "SHORT") {
+    if (btcContext.regime === "BEAR_STRONG") sniperScore += 25;
+    else if (btcContext.regime === "BEAR_WEAK") sniperScore += 15;
+    if (orderflow.orderflowState === "BEARISH") sniperScore += 20;
+  }
   if (spatial.spatialStatus === "CLEAR") sniperScore += 15;
   if (rvol >= 1.5) sniperScore += 10;
   if (adx >= 25) sniperScore += 10;

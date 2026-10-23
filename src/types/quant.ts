@@ -54,6 +54,7 @@ export interface SpatialMetrics {
   isAtSupport: boolean;    // < 0.25%
   isLateExpansion: boolean; // > 1.4x ATR from level or RSI > 72 / < 28
   expansionAtrMult: number;
+  expansionDownAtrMult?: number;
   rsi: number;
   atr14: number;
   spatialStatus: SpatialStatus;

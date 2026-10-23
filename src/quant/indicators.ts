@@ -272,10 +272,18 @@ export function calculateSpatialMetrics(
   const closes = windowCandles.map(c => c.close);
   const rsi = calculateRSI(closes, 14);
 
-  // Late expansion check: price expanded > 1.4x ATR from support/resistance or RSI > 72 (overextended long) or RSI < 28 (overextended short)
-  const expansionDistanceFromSupp = currentPrice - nearestSupport;
-  const expansionAtrMult = atr14 > 0 ? expansionDistanceFromSupp / atr14 : 0;
-  const isLateExpansion = expansionAtrMult > 1.4 || rsi > 72 || rsi < 28;
+  // Late expansion check:
+  // For LONG: price expanded > 1.4x ATR upward from support or RSI > 72 (overextended long)
+  const expansionUpDistance = Math.max(0, currentPrice - nearestSupport);
+  const expansionUpAtrMult = atr14 > 0 ? expansionUpDistance / atr14 : 0;
+
+  // For SHORT: price expanded > 1.4x ATR downward from resistance or RSI < 28 (overextended short)
+  const expansionDownDistance = Math.max(0, nearestResistance - currentPrice);
+  const expansionDownAtrMult = atr14 > 0 ? expansionDownDistance / atr14 : 0;
+
+  const isLateExpansionLong = expansionUpAtrMult > 1.4 || rsi > 72;
+  const isLateExpansionShort = expansionDownAtrMult > 1.4 || rsi < 28;
+  const isLateExpansion = isLateExpansionLong || isLateExpansionShort;
 
   let spatialStatus: SpatialMetrics['spatialStatus'] = 'CLEAR';
   if (isAtResistance || isAtSupport) {
@@ -292,11 +300,16 @@ export function calculateSpatialMetrics(
     isAtResistance,
     isAtSupport,
     isLateExpansion,
-    expansionAtrMult: Math.round(expansionAtrMult * 100) / 100,
+    expansionAtrMult: Math.round(expansionUpAtrMult * 100) / 100,
+    expansionDownAtrMult: Math.round(expansionDownAtrMult * 100) / 100,
     rsi: Math.round(rsi * 10) / 10,
     atr14: Math.round(atr14 * 10000) / 10000,
     spatialStatus,
-    retestTargetLevel: isLateExpansion ? (expansionAtrMult > 1.4 ? nearestSupport + (atr14 * 0.5) : undefined) : undefined,
+    retestTargetLevel: isLateExpansionLong
+      ? nearestSupport + (atr14 * 0.5)
+      : isLateExpansionShort
+      ? nearestResistance - (atr14 * 0.5)
+      : undefined,
   };
 }
 

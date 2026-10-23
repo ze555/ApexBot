@@ -154,23 +154,23 @@ let settings: PlatformSettings = {
 };
 
 let stats: PlatformStats = {
-  portfolioBalance: 1044.90,
-  startOfDayBalance: 1000,
-  dailyRealizedPnl: 36.50,
-  dailyUnrealizedPnl: 8.40,
-  dailyTotalPnl: 44.90,
+  portfolioBalance: 1000.00,
+  startOfDayBalance: 1000.00,
+  dailyRealizedPnl: 0,
+  dailyUnrealizedPnl: 0,
+  dailyTotalPnl: 0,
   dailyDrawdownPct: 0,
   circuitBreakerTripped: false,
   circuitBreakerThresholdPct: -3.0,
-  totalTrades: 12,
-  winningTrades: 9,
-  losingTrades: 3,
-  winRatePct: 75.0,
-  totalRealizedR: 12.85,
-  averageWinR: 1.62,
-  averageLossR: -0.34, // Due to Smart Early Invalidation Cuts!
-  profitFactor: 3.85,
-  savedCapitalUsd: 48.00,
+  totalTrades: 0,
+  winningTrades: 0,
+  losingTrades: 0,
+  winRatePct: 0,
+  totalRealizedR: 0,
+  averageWinR: 0,
+  averageLossR: 0,
+  profitFactor: 0,
+  savedCapitalUsd: 0,
 };
 
 // Seed realistic high-conviction trade history demonstrating the 3:1+ win/loss expectancy
@@ -476,7 +476,8 @@ function seedInitialTrades() {
   ];
 }
 
-seedInitialTrades();
+// Real clean slate: start with zero fake trades. All trades will be 100% genuine from the live engine.
+// seedInitialTrades();
 
 // Helper to generate realistic candles for a symbol
 function generateSyntheticCandles(symbol: string, count: number = 60): Candle[] {
@@ -630,8 +631,15 @@ function evaluatePairState(symbol: string, candles: Candle[]): PairMarketState {
 
   // Calculate Conviction / Sniper Score (0-100)
   let sniperScore = 40;
-  if (btcContext.regime === 'BULL_STRONG' && candidateSide === 'LONG') sniperScore += 25;
-  if (orderflow.orderflowState === 'BULLISH' && candidateSide === 'LONG') sniperScore += 20;
+  if (candidateSide === 'LONG') {
+    if (btcContext.regime === 'BULL_STRONG') sniperScore += 25;
+    else if (btcContext.regime === 'BULL_WEAK') sniperScore += 15;
+    if (orderflow.orderflowState === 'BULLISH') sniperScore += 20;
+  } else if (candidateSide === 'SHORT') {
+    if (btcContext.regime === 'BEAR_STRONG') sniperScore += 25;
+    else if (btcContext.regime === 'BEAR_WEAK') sniperScore += 15;
+    if (orderflow.orderflowState === 'BEARISH') sniperScore += 20;
+  }
   if (spatial.spatialStatus === 'CLEAR') sniperScore += 15;
   if (rvol >= 1.5) sniperScore += 10;
   if (adx >= 25) sniperScore += 10;

@@ -47,23 +47,23 @@ export default function App() {
   const [closedTrades, setClosedTrades] = useState<TradePosition[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [stats, setStats] = useState<PlatformStats>({
-    portfolioBalance: 1044.90,
-    startOfDayBalance: 1000,
-    dailyRealizedPnl: 36.50,
-    dailyUnrealizedPnl: 8.40,
-    dailyTotalPnl: 44.90,
+    portfolioBalance: 1000.00,
+    startOfDayBalance: 1000.00,
+    dailyRealizedPnl: 0,
+    dailyUnrealizedPnl: 0,
+    dailyTotalPnl: 0,
     dailyDrawdownPct: 0,
     circuitBreakerTripped: false,
     circuitBreakerThresholdPct: -3.0,
-    totalTrades: 12,
-    winningTrades: 9,
-    losingTrades: 3,
-    winRatePct: 75.0,
-    totalRealizedR: 12.85,
-    averageWinR: 1.62,
-    averageLossR: -0.34,
-    profitFactor: 3.85,
-    savedCapitalUsd: 48.00,
+    totalTrades: 0,
+    winningTrades: 0,
+    losingTrades: 0,
+    winRatePct: 0,
+    totalRealizedR: 0,
+    averageWinR: 0,
+    averageLossR: 0,
+    profitFactor: 0,
+    savedCapitalUsd: 0,
   });
 
   const [settings, setSettings] = useState<PlatformSettings>({

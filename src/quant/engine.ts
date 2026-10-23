@@ -244,12 +244,13 @@ export function evaluateStrictEntryPolicies(params: {
     };
   }
 
-  if (candidateSide === 'SHORT' && (spatial.expansionAtrMult > 1.4 || spatial.rsi < 28)) {
+  const downExpansion = spatial.expansionDownAtrMult ?? spatial.expansionAtrMult;
+  if (candidateSide === 'SHORT' && (downExpansion > 1.4 || spatial.rsi < 28)) {
     return {
       allowed: false,
       blockedBy: 'LATE_EXPANSION',
-      reason: `LATE_EXPANSION Detected: Asset extended ${spatial.expansionAtrMult.toFixed(2)}x ATR downward (RSI: ${spatial.rsi}). Selling overextended bottom prohibited; WAITING_FOR_RETEST.`,
-      gateDetails: { expansionAtrMult: spatial.expansionAtrMult, rsi: spatial.rsi },
+      reason: `LATE_EXPANSION Detected: Asset extended ${downExpansion.toFixed(2)}x ATR downward from resistance (RSI: ${spatial.rsi}). Selling overextended bottom prohibited; WAITING_FOR_RETEST.`,
+      gateDetails: { expansionAtrMult: downExpansion, rsi: spatial.rsi },
     };
   }
 

@@ -95,7 +95,14 @@ export const ClosedTradesHistory: React.FC<ClosedTradesHistoryProps> = ({ trades
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60">
-            {trades.map((trade) => {
+            {trades.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="py-8 text-center text-slate-500 font-sans text-xs">
+                  لا توجد صفقات مغلقة حتى الآن • بانتظار إغلاق أول صفقة حقيقية لتسجيل الأداء
+                </td>
+              </tr>
+            ) : (
+              trades.map((trade) => {
               const isWin = trade.realizedPnl >= 0;
               const reason = getReasonBadge(trade.closeReason);
               const isLong = trade.side === 'LONG';
@@ -159,7 +166,7 @@ export const ClosedTradesHistory: React.FC<ClosedTradesHistoryProps> = ({ trades
                   </td>
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
       </div>
