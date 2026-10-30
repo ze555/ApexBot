@@ -143,6 +143,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </span>
           </div>
 
+          {/* Minimum Sniper Conviction Threshold */}
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
+            <div className="flex justify-between items-center mb-1">
+              <div>
+                <span className="text-white font-bold block">Sniper Conviction Threshold (Auto-Entry Sensitivity)</span>
+                <span className="text-[11px] text-slate-400">Minimum score required to trigger automatic sniper entry</span>
+              </div>
+              <span className={`font-bold text-sm font-mono px-2 py-0.5 rounded border ${
+                (form.minSniperScore || 70) <= 65
+                  ? 'bg-amber-950/60 text-amber-300 border-amber-800'
+                  : (form.minSniperScore || 70) <= 75
+                  ? 'bg-cyan-950/60 text-cyan-300 border-cyan-800'
+                  : 'bg-emerald-950/60 text-emerald-300 border-emerald-800'
+              }`}>
+                {form.minSniperScore || 70}%
+              </span>
+            </div>
+
+            {/* Quick preset buttons */}
+            <div className="flex items-center gap-1.5 flex-wrap my-2">
+              {[
+                { score: 60, label: '60% (Active / اقتناص نشط)' },
+                { score: 70, label: '70% (Standard / متوازن موصى به)' },
+                { score: 80, label: '80% (Conservative / نخبوي)' },
+              ].map(({ score, label }) => (
+                <button
+                  key={score}
+                  type="button"
+                  onClick={() => setForm({ ...form, minSniperScore: score })}
+                  className={`px-2.5 py-1 rounded text-[11px] font-mono transition-colors cursor-pointer border ${
+                    (form.minSniperScore || 70) === score
+                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500 font-bold'
+                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <input
+              type="range"
+              min="50"
+              max="90"
+              step="5"
+              value={form.minSniperScore || 70}
+              onChange={(e) => setForm({ ...form, minSniperScore: parseInt(e.target.value, 10) })}
+              className="w-full accent-cyan-400 cursor-pointer mt-1"
+            />
+            <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+              70% provides the optimal balance between high win-rate and active execution. Lowering to 60-65% triggers during fast market pumps/dumps so the bot never sleeps on profitable moves.
+            </p>
+          </div>
+
           {/* Maximum Leverage Cap */}
           <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
             <div className="flex justify-between items-center mb-1">

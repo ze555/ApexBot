@@ -146,7 +146,7 @@ function calculateCVD(candles) {
   }
   return cvd;
 }
-function calculateSpatialMetrics(candles15m, currentPrice) {
+function calculateSpatialMetrics(candles15m, currentPrice, candidateSide = "NONE") {
   const windowCandles = candles15m.slice(-30);
   if (windowCandles.length < 5) {
     return {
@@ -176,8 +176,14 @@ function calculateSpatialMetrics(candles15m, currentPrice) {
       swingLows.push(curr.low);
     }
   }
-  const nearestResistance = swingHighs.length > 0 ? Math.max(...swingHighs) : Math.max(...windowCandles.map((c) => c.high));
-  const nearestSupport = swingLows.length > 0 ? Math.min(...swingLows) : Math.min(...windowCandles.map((c) => c.low));
+  const highsAbove = swingHighs.filter((h) => h > currentPrice);
+  const maxWindowHigh = Math.max(...windowCandles.map((c) => c.high));
+  let nearestResistance = highsAbove.length > 0 ? Math.min(...highsAbove) : maxWindowHigh > currentPrice ? maxWindowHigh : currentPrice * 1.015;
+  const lowsBelow = swingLows.filter((l) => l < currentPrice);
+  const minWindowLow = Math.min(...windowCandles.map((c) => c.low));
+  let nearestSupport = lowsBelow.length > 0 ? Math.max(...lowsBelow) : minWindowLow < currentPrice ? minWindowLow : currentPrice * 0.985;
+  if (nearestResistance <= currentPrice) nearestResistance = currentPrice * 1.015;
+  if (nearestSupport >= currentPrice) nearestSupport = currentPrice * 0.985;
   const distanceToResistancePct = Math.max(0, (nearestResistance - currentPrice) / currentPrice * 100);
   const distanceToSupportPct = Math.max(0, (currentPrice - nearestSupport) / currentPrice * 100);
   const isAtResistance = distanceToResistancePct < 0.25;
@@ -186,18 +192,37 @@ function calculateSpatialMetrics(candles15m, currentPrice) {
   const atr14 = atrs.length > 0 ? atrs[atrs.length - 1] : currentPrice * 8e-3;
   const closes = windowCandles.map((c) => c.close);
   const rsi = calculateRSI(closes, 14);
-  const expansionUpDistance = Math.max(0, currentPrice - nearestSupport);
+  const recent5 = windowCandles.slice(-5);
+  const recentBaseLow = Math.min(...recent5.map((c) => c.low));
+  const recentBaseHigh = Math.max(...recent5.map((c) => c.high));
+  const expansionUpDistance = Math.max(0, currentPrice - recentBaseLow);
   const expansionUpAtrMult = atr14 > 0 ? expansionUpDistance / atr14 : 0;
-  const expansionDownDistance = Math.max(0, nearestResistance - currentPrice);
+  const expansionDownDistance = Math.max(0, recentBaseHigh - currentPrice);
   const expansionDownAtrMult = atr14 > 0 ? expansionDownDistance / atr14 : 0;
-  const isLateExpansionLong = expansionUpAtrMult > 1.4 || rsi > 72;
-  const isLateExpansionShort = expansionDownAtrMult > 1.4 || rsi < 28;
-  const isLateExpansion = isLateExpansionLong || isLateExpansionShort;
+  const isLateExpansionLong = expansionUpAtrMult > 1.5 || rsi > 72;
+  const isLateExpansionShort = expansionDownAtrMult > 1.5 || rsi < 28;
+  let isLateExpansion = false;
+  let selectedExpansionMult = expansionUpAtrMult;
+  if (candidateSide === "LONG") {
+    isLateExpansion = isLateExpansionLong;
+    selectedExpansionMult = expansionUpAtrMult;
+  } else if (candidateSide === "SHORT") {
+    isLateExpansion = isLateExpansionShort;
+    selectedExpansionMult = expansionDownAtrMult;
+  } else {
+    isLateExpansion = isLateExpansionLong && isLateExpansionShort;
+    selectedExpansionMult = Math.min(expansionUpAtrMult, expansionDownAtrMult);
+  }
   let spatialStatus = "CLEAR";
-  if (isAtResistance || isAtSupport) {
-    spatialStatus = "BAD_LOCATION";
-  } else if (isLateExpansion) {
-    spatialStatus = "WAITING_FOR_RETEST";
+  if (candidateSide === "LONG") {
+    if (isAtResistance) spatialStatus = "BAD_LOCATION";
+    else if (isLateExpansionLong) spatialStatus = "WAITING_FOR_RETEST";
+  } else if (candidateSide === "SHORT") {
+    if (isAtSupport) spatialStatus = "BAD_LOCATION";
+    else if (isLateExpansionShort) spatialStatus = "WAITING_FOR_RETEST";
+  } else {
+    if (isAtResistance || isAtSupport) spatialStatus = "BAD_LOCATION";
+    else if (isLateExpansionLong && isLateExpansionShort) spatialStatus = "WAITING_FOR_RETEST";
   }
   return {
     nearestResistance: Math.round(nearestResistance * 1e4) / 1e4,
@@ -207,7 +232,7 @@ function calculateSpatialMetrics(candles15m, currentPrice) {
     isAtResistance,
     isAtSupport,
     isLateExpansion,
-    expansionAtrMult: Math.round(expansionUpAtrMult * 100) / 100,
+    expansionAtrMult: Math.round(selectedExpansionMult * 100) / 100,
     expansionDownAtrMult: Math.round(expansionDownAtrMult * 100) / 100,
     rsi: Math.round(rsi * 10) / 10,
     atr14: Math.round(atr14 * 1e4) / 1e4,
@@ -312,28 +337,21 @@ function evaluateBTCRegime(candles15m, candles4h, ticker24h) {
   let regime = "RANGE";
   let regimeDescription = "";
   let regimeRiskMult = 1;
-  if (currentPrice > ema50 && ema50 > ema200 && change24h > 1.5 && adx > 25) {
+  if (currentPrice > ema50 && ema50 > ema200 && (adx > 22 || change24h > 1) && plusDI >= minusDI) {
     regime = "BULL_STRONG";
-    regimeDescription = "Dominant Institutional Bull Trend (Price > EMA50 > EMA200, ADX > 25). Strict Short Blocker Engaged.";
+    regimeDescription = "Dominant Institutional Bull Trend (Price > EMA50 > EMA200). Strict Short Blocker Engaged.";
     regimeRiskMult = 1;
-  } else if (currentPrice < ema50 && ema50 < ema200 && change24h < -1.5 && adx > 25) {
+  } else if (currentPrice < ema50 && ema50 < ema200 && (adx > 22 || change24h < -1) && minusDI >= plusDI) {
     regime = "BEAR_STRONG";
-    regimeDescription = "Dominant Institutional Bear Trend (Price < EMA50 < EMA200, ADX > 25). Strict Long Blocker Engaged.";
+    regimeDescription = "Dominant Institutional Bear Trend (Price < EMA50 < EMA200). Strict Long Blocker Engaged.";
     regimeRiskMult = 1;
   } else if (currentPrice >= ema50) {
-    const distToEma50Pct = Math.abs((currentPrice - ema50) / ema50) * 100;
-    if (distToEma50Pct < 0.6 || adx < 22 || plusDI < minusDI) {
-      regime = "BULL_WEAK";
-      regimeDescription = "Weak Bull Momentum: BTC testing EMA50 support or momentum decelerating.";
-      regimeRiskMult = 0.5;
-    } else {
-      regime = "BULL_STRONG";
-      regimeDescription = "Moderate Bull Trend holding firmly above EMA50.";
-      regimeRiskMult = 1;
-    }
-  } else if (currentPrice < ema50 && (adx < 22 || minusDI < plusDI || bandWidthPct < 1.8)) {
+    regime = "BULL_WEAK";
+    regimeDescription = "Bull Momentum holding above EMA50 support.";
+    regimeRiskMult = 0.5;
+  } else if (currentPrice < ema50) {
     regime = "BEAR_WEAK";
-    regimeDescription = "Weak Bear Momentum: Decelerating sell pressure or near local support.";
+    regimeDescription = "Bear Momentum trading below EMA50.";
     regimeRiskMult = 0.5;
   } else {
     regime = "RANGE";
@@ -423,7 +441,7 @@ function evaluateStrictEntryPolicies(params) {
       gateDetails: { distanceToSupportPct: spatial.distanceToSupportPct }
     };
   }
-  if (candidateSide === "LONG" && (spatial.expansionAtrMult > 1.4 || spatial.rsi > 72)) {
+  if (candidateSide === "LONG" && (spatial.expansionAtrMult > 1.5 || spatial.rsi > 72)) {
     return {
       allowed: false,
       blockedBy: "LATE_EXPANSION",
@@ -432,7 +450,7 @@ function evaluateStrictEntryPolicies(params) {
     };
   }
   const downExpansion = spatial.expansionDownAtrMult ?? spatial.expansionAtrMult;
-  if (candidateSide === "SHORT" && (downExpansion > 1.4 || spatial.rsi < 28)) {
+  if (candidateSide === "SHORT" && (downExpansion > 1.5 || spatial.rsi < 28)) {
     return {
       allowed: false,
       blockedBy: "LATE_EXPANSION",
@@ -461,19 +479,11 @@ function evaluateStrictEntryPolicies(params) {
       };
     }
   }
-  if (orderflow.orderflowState === "MIXED" || orderflow.flowPersistence === "CONFLICTED") {
-    return {
-      allowed: false,
-      blockedBy: "CONFLICTED_ORDERFLOW",
-      reason: `Conflicted Orderflow Blocker: Orderflow is ${orderflow.orderflowState} with ${orderflow.flowPersistence} persistence. Institutional backing unconfirmed.`,
-      gateDetails: { orderflowState: orderflow.orderflowState }
-    };
-  }
   if (candidateSide === "LONG" && orderflow.orderflowState === "BEARISH") {
     return {
       allowed: false,
       blockedBy: "CONFLICTED_ORDERFLOW",
-      reason: "Conflicted Orderflow Blocker: Cannot take LONG trade into net BEARISH CVD orderflow slope.",
+      reason: "Conflicted Orderflow Blocker: Cannot take LONG trade into net BEARISH CVD orderflow slope. Institutional distribution detected.",
       gateDetails: { orderflowState: orderflow.orderflowState }
     };
   }
@@ -481,7 +491,7 @@ function evaluateStrictEntryPolicies(params) {
     return {
       allowed: false,
       blockedBy: "CONFLICTED_ORDERFLOW",
-      reason: "Conflicted Orderflow Blocker: Cannot take SHORT trade into net BULLISH CVD orderflow slope.",
+      reason: "Conflicted Orderflow Blocker: Cannot take SHORT trade into net BULLISH CVD orderflow slope. Institutional accumulation detected.",
       gateDetails: { orderflowState: orderflow.orderflowState }
     };
   }
@@ -772,7 +782,8 @@ var settings = {
   maxOpenPositions: 4,
   scanIntervalSeconds: 5,
   circuitBreakerPct: -3,
-  trailingStopMultiplier: 1.5
+  trailingStopMultiplier: 1.5,
+  minSniperScore: 70
 };
 var stats = {
   portfolioBalance: 1e3,
@@ -901,19 +912,17 @@ function evaluatePairState(symbol, candles) {
   const high24h = Math.max(...candles.map((c) => c.high));
   const low24h = Math.min(...candles.map((c) => c.low));
   const volume24h = Math.round(candles.reduce((sum, c) => sum + c.volume, 0));
-  const spatial = calculateSpatialMetrics(candles, currentPrice);
-  const orderflow = computeOrderflowMetrics(candles, [{ oi: 1e4, timestamp: 0 }, { oi: 10180, timestamp: 1 }]);
-  const { adx, plusDI, minusDI } = calculateADX(candles, 14);
-  const rvol = calculateRVOL(candles, 20);
-  let regime = "RANGE";
   const closes = candles.map((c) => c.close);
   const ema21Series = calculateEMA(closes, 21);
   const ema50Series = calculateEMA(closes, 50);
   const ema21 = ema21Series[ema21Series.length - 1] || currentPrice;
   const ema50 = ema50Series[ema50Series.length - 1] || currentPrice;
-  if (currentPrice > ema21 && ema21 > ema50 && adx > 22) {
+  const { adx, plusDI, minusDI } = calculateADX(candles, 14);
+  const rvol = calculateRVOL(candles, 20);
+  let regime = "RANGE";
+  if (currentPrice >= ema21 && plusDI > minusDI || currentPrice >= ema50 && ema21 >= ema50) {
     regime = "TREND_UP";
-  } else if (currentPrice < ema21 && ema21 < ema50 && adx > 22) {
+  } else if (currentPrice <= ema21 && minusDI > plusDI || currentPrice <= ema50 && ema21 <= ema50) {
     regime = "TREND_DOWN";
   } else {
     regime = "RANGE";
@@ -930,21 +939,25 @@ function evaluatePairState(symbol, candles) {
       candidateSide = "SHORT";
     }
   }
-  let sniperScore = 40;
+  const spatial = calculateSpatialMetrics(candles, currentPrice, candidateSide);
+  const orderflow = computeOrderflowMetrics(candles, [{ oi: 1e4, timestamp: 0 }, { oi: 10180, timestamp: 1 }]);
+  let sniperScore = 45;
   if (candidateSide === "LONG") {
     if (btcContext.regime === "BULL_STRONG") sniperScore += 25;
-    else if (btcContext.regime === "BULL_WEAK") sniperScore += 15;
+    else if (btcContext.regime === "BULL_WEAK") sniperScore += 18;
     if (orderflow.orderflowState === "BULLISH") sniperScore += 20;
-    if (regime === "TREND_UP") sniperScore += 10;
+    else if (orderflow.orderflowState === "MIXED") sniperScore += 10;
+    if (regime === "TREND_UP") sniperScore += 12;
   } else if (candidateSide === "SHORT") {
     if (btcContext.regime === "BEAR_STRONG") sniperScore += 25;
-    else if (btcContext.regime === "BEAR_WEAK") sniperScore += 15;
+    else if (btcContext.regime === "BEAR_WEAK") sniperScore += 18;
     if (orderflow.orderflowState === "BEARISH") sniperScore += 20;
-    if (regime === "TREND_DOWN") sniperScore += 10;
+    else if (orderflow.orderflowState === "MIXED") sniperScore += 10;
+    if (regime === "TREND_DOWN") sniperScore += 12;
   }
   if (spatial.spatialStatus === "CLEAR") sniperScore += 15;
-  if (rvol >= 1.5) sniperScore += 10;
-  if (adx >= 25) sniperScore += 10;
+  if (rvol >= 1) sniperScore += 8;
+  if (adx >= 20) sniperScore += 8;
   if (spatial.spatialStatus === "BAD_LOCATION") sniperScore = Math.min(sniperScore, 20);
   if (spatial.spatialStatus === "WAITING_FOR_RETEST") sniperScore = Math.min(sniperScore, 35);
   sniperScore = Math.min(98, Math.max(10, sniperScore));
@@ -1025,7 +1038,8 @@ async function runEngineCycle() {
       }
       if (settings.autoExecution && !stats.circuitBreakerTripped && activePositions.length < settings.maxOpenPositions && state.lastGateResult.allowed && state.candidateSide !== "NONE") {
         const alreadyOpen = activePositions.some((p) => p.symbol === sym && p.status === "OPEN");
-        if (!alreadyOpen && state.sniperScore >= 80) {
+        const minScore = settings.minSniperScore ?? 70;
+        if (!alreadyOpen && state.sniperScore >= minScore) {
           const riskUsd = stats.portfolioBalance * (settings.riskPerTradePct / 100) * btcContext.regimeRiskMult;
           const stopDist = Math.max(state.price * 8e-3, state.spatial.atr14 * 1.5);
           const stopLoss = state.candidateSide === "LONG" ? state.price - stopDist : state.price + stopDist;

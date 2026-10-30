@@ -213,7 +213,8 @@ export function calculateCVD(candles: Candle[]): number[] {
  */
 export function calculateSpatialMetrics(
   candles15m: Candle[],
-  currentPrice: number
+  currentPrice: number,
+  candidateSide: 'LONG' | 'SHORT' | 'NONE' = 'NONE'
 ): SpatialMetrics {
   const windowCandles = candles15m.slice(-30);
   if (windowCandles.length < 5) {
@@ -249,14 +250,22 @@ export function calculateSpatialMetrics(
     }
   }
 
-  // If no localized swing points, use highest high and lowest low of the window
-  const nearestResistance = swingHighs.length > 0 
-    ? Math.max(...swingHighs) 
-    : Math.max(...windowCandles.map(c => c.high));
+  // Nearest resistance: closest structural high ABOVE current price
+  const highsAbove = swingHighs.filter(h => h > currentPrice);
+  const maxWindowHigh = Math.max(...windowCandles.map(c => c.high));
+  let nearestResistance = highsAbove.length > 0 
+    ? Math.min(...highsAbove) 
+    : (maxWindowHigh > currentPrice ? maxWindowHigh : currentPrice * 1.015);
 
-  const nearestSupport = swingLows.length > 0 
-    ? Math.min(...swingLows) 
-    : Math.min(...windowCandles.map(c => c.low));
+  // Nearest support: closest structural low BELOW current price
+  const lowsBelow = swingLows.filter(l => l < currentPrice);
+  const minWindowLow = Math.min(...windowCandles.map(c => c.low));
+  let nearestSupport = lowsBelow.length > 0 
+    ? Math.max(...lowsBelow) 
+    : (minWindowLow < currentPrice ? minWindowLow : currentPrice * 0.985);
+
+  if (nearestResistance <= currentPrice) nearestResistance = currentPrice * 1.015;
+  if (nearestSupport >= currentPrice) nearestSupport = currentPrice * 0.985;
 
   // Compute percentage distances
   const distanceToResistancePct = Math.max(0, ((nearestResistance - currentPrice) / currentPrice) * 100);
@@ -272,24 +281,47 @@ export function calculateSpatialMetrics(
   const closes = windowCandles.map(c => c.close);
   const rsi = calculateRSI(closes, 14);
 
+  // Recent local consolidation/pullback base for expansion measurement (last 5 candles)
+  const recent5 = windowCandles.slice(-5);
+  const recentBaseLow = Math.min(...recent5.map(c => c.low));
+  const recentBaseHigh = Math.max(...recent5.map(c => c.high));
+
   // Late expansion check:
-  // For LONG: price expanded > 1.4x ATR upward from support or RSI > 72 (overextended long)
-  const expansionUpDistance = Math.max(0, currentPrice - nearestSupport);
+  // For LONG: price expanded > 1.4x ATR upward from the recent consolidation base or RSI > 72 (overextended long)
+  const expansionUpDistance = Math.max(0, currentPrice - recentBaseLow);
   const expansionUpAtrMult = atr14 > 0 ? expansionUpDistance / atr14 : 0;
 
-  // For SHORT: price expanded > 1.4x ATR downward from resistance or RSI < 28 (overextended short)
-  const expansionDownDistance = Math.max(0, nearestResistance - currentPrice);
+  // For SHORT: price expanded > 1.4x ATR downward from the recent consolidation base or RSI < 28 (overextended short)
+  const expansionDownDistance = Math.max(0, recentBaseHigh - currentPrice);
   const expansionDownAtrMult = atr14 > 0 ? expansionDownDistance / atr14 : 0;
 
-  const isLateExpansionLong = expansionUpAtrMult > 1.4 || rsi > 72;
-  const isLateExpansionShort = expansionDownAtrMult > 1.4 || rsi < 28;
-  const isLateExpansion = isLateExpansionLong || isLateExpansionShort;
+  const isLateExpansionLong = expansionUpAtrMult > 1.5 || rsi > 72;
+  const isLateExpansionShort = expansionDownAtrMult > 1.5 || rsi < 28;
+
+  let isLateExpansion = false;
+  let selectedExpansionMult = expansionUpAtrMult;
+
+  if (candidateSide === 'LONG') {
+    isLateExpansion = isLateExpansionLong;
+    selectedExpansionMult = expansionUpAtrMult;
+  } else if (candidateSide === 'SHORT') {
+    isLateExpansion = isLateExpansionShort;
+    selectedExpansionMult = expansionDownAtrMult;
+  } else {
+    isLateExpansion = isLateExpansionLong && isLateExpansionShort;
+    selectedExpansionMult = Math.min(expansionUpAtrMult, expansionDownAtrMult);
+  }
 
   let spatialStatus: SpatialMetrics['spatialStatus'] = 'CLEAR';
-  if (isAtResistance || isAtSupport) {
-    spatialStatus = 'BAD_LOCATION';
-  } else if (isLateExpansion) {
-    spatialStatus = 'WAITING_FOR_RETEST';
+  if (candidateSide === 'LONG') {
+    if (isAtResistance) spatialStatus = 'BAD_LOCATION';
+    else if (isLateExpansionLong) spatialStatus = 'WAITING_FOR_RETEST';
+  } else if (candidateSide === 'SHORT') {
+    if (isAtSupport) spatialStatus = 'BAD_LOCATION';
+    else if (isLateExpansionShort) spatialStatus = 'WAITING_FOR_RETEST';
+  } else {
+    if (isAtResistance || isAtSupport) spatialStatus = 'BAD_LOCATION';
+    else if (isLateExpansionLong && isLateExpansionShort) spatialStatus = 'WAITING_FOR_RETEST';
   }
 
   return {
@@ -300,7 +332,7 @@ export function calculateSpatialMetrics(
     isAtResistance,
     isAtSupport,
     isLateExpansion,
-    expansionAtrMult: Math.round(expansionUpAtrMult * 100) / 100,
+    expansionAtrMult: Math.round(selectedExpansionMult * 100) / 100,
     expansionDownAtrMult: Math.round(expansionDownAtrMult * 100) / 100,
     rsi: Math.round(rsi * 10) / 10,
     atr14: Math.round(atr14 * 10000) / 10000,

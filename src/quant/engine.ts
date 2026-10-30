@@ -75,35 +75,28 @@ export function evaluateBTCRegime(
   let regimeDescription = '';
   let regimeRiskMult = 1.0;
 
-  // BULL_STRONG: BTC Price > EMA50, EMA50 > EMA200, 24h change > +1.5%, ADX > 25
-  if (currentPrice > ema50 && ema50 > ema200 && change24h > 1.5 && adx > 25) {
+  // BULL_STRONG: BTC Price > EMA50, EMA50 > EMA200, ADX > 22, plusDI > minusDI
+  if (currentPrice > ema50 && ema50 > ema200 && (adx > 22 || change24h > 1.0) && plusDI >= minusDI) {
     regime = 'BULL_STRONG';
-    regimeDescription = 'Dominant Institutional Bull Trend (Price > EMA50 > EMA200, ADX > 25). Strict Short Blocker Engaged.';
+    regimeDescription = 'Dominant Institutional Bull Trend (Price > EMA50 > EMA200). Strict Short Blocker Engaged.';
     regimeRiskMult = 1.0;
   }
-  // BEAR_STRONG: BTC Price < EMA50, EMA50 < EMA200, 24h change < -1.5%, ADX > 25
-  else if (currentPrice < ema50 && ema50 < ema200 && change24h < -1.5 && adx > 25) {
+  // BEAR_STRONG: BTC Price < EMA50 && EMA50 < EMA200, ADX > 22, minusDI > plusDI
+  else if (currentPrice < ema50 && ema50 < ema200 && (adx > 22 || change24h < -1.0) && minusDI >= plusDI) {
     regime = 'BEAR_STRONG';
-    regimeDescription = 'Dominant Institutional Bear Trend (Price < EMA50 < EMA200, ADX > 25). Strict Long Blocker Engaged.';
+    regimeDescription = 'Dominant Institutional Bear Trend (Price < EMA50 < EMA200). Strict Long Blocker Engaged.';
     regimeRiskMult = 1.0;
   }
-  // BULL_WEAK: BTC Price > EMA50 but momentum slowing, or testing EMA50 from above
+  // BULL_WEAK: BTC Price >= EMA50
   else if (currentPrice >= ema50) {
-    const distToEma50Pct = Math.abs((currentPrice - ema50) / ema50) * 100;
-    if (distToEma50Pct < 0.6 || adx < 22 || plusDI < minusDI) {
-      regime = 'BULL_WEAK';
-      regimeDescription = 'Weak Bull Momentum: BTC testing EMA50 support or momentum decelerating.';
-      regimeRiskMult = 0.50; // Choppy/transitional regime scales risk by 50%
-    } else {
-      regime = 'BULL_STRONG';
-      regimeDescription = 'Moderate Bull Trend holding firmly above EMA50.';
-      regimeRiskMult = 1.0;
-    }
+    regime = 'BULL_WEAK';
+    regimeDescription = 'Bull Momentum holding above EMA50 support.';
+    regimeRiskMult = 0.50;
   }
-  // BEAR_WEAK: BTC Price < EMA50 with declining bearish momentum
-  else if (currentPrice < ema50 && (adx < 22 || minusDI < plusDI || bandWidthPct < 1.8)) {
+  // BEAR_WEAK: BTC Price < EMA50
+  else if (currentPrice < ema50) {
     regime = 'BEAR_WEAK';
-    regimeDescription = 'Weak Bear Momentum: Decelerating sell pressure or near local support.';
+    regimeDescription = 'Bear Momentum trading below EMA50.';
     regimeRiskMult = 0.50;
   }
   // RANGE: Consolidating inside narrow band between recent 30-candle highs and lows with low RVOL
@@ -234,8 +227,8 @@ export function evaluateStrictEntryPolicies(params: {
   }
 
   // Gate 3: Timing Gate (Detect LATE_EXPANSION)
-  // Price expanded > 1.4x ATR from level or RSI > 72 for long / RSI < 28 for short
-  if (candidateSide === 'LONG' && (spatial.expansionAtrMult > 1.4 || spatial.rsi > 72)) {
+  // Price expanded > 1.5x ATR from level or RSI > 72 for long / RSI < 28 for short
+  if (candidateSide === 'LONG' && (spatial.expansionAtrMult > 1.5 || spatial.rsi > 72)) {
     return {
       allowed: false,
       blockedBy: 'LATE_EXPANSION',
@@ -245,7 +238,7 @@ export function evaluateStrictEntryPolicies(params: {
   }
 
   const downExpansion = spatial.expansionDownAtrMult ?? spatial.expansionAtrMult;
-  if (candidateSide === 'SHORT' && (downExpansion > 1.4 || spatial.rsi < 28)) {
+  if (candidateSide === 'SHORT' && (downExpansion > 1.5 || spatial.rsi < 28)) {
     return {
       allowed: false,
       blockedBy: 'LATE_EXPANSION',
@@ -287,21 +280,12 @@ export function evaluateStrictEntryPolicies(params: {
   }
 
   // Gate 6: Conflicted Orderflow Blocker
-  // Reject any entry where orderflow state is MIXED or flow persistence is CONFLICTED
-  if (orderflow.orderflowState === 'MIXED' || orderflow.flowPersistence === 'CONFLICTED') {
-    return {
-      allowed: false,
-      blockedBy: 'CONFLICTED_ORDERFLOW',
-      reason: `Conflicted Orderflow Blocker: Orderflow is ${orderflow.orderflowState} with ${orderflow.flowPersistence} persistence. Institutional backing unconfirmed.`,
-      gateDetails: { orderflowState: orderflow.orderflowState },
-    };
-  }
-
+  // Strictly reject any entry that fights against opposing institutional whale orderflow
   if (candidateSide === 'LONG' && orderflow.orderflowState === 'BEARISH') {
     return {
       allowed: false,
       blockedBy: 'CONFLICTED_ORDERFLOW',
-      reason: 'Conflicted Orderflow Blocker: Cannot take LONG trade into net BEARISH CVD orderflow slope.',
+      reason: 'Conflicted Orderflow Blocker: Cannot take LONG trade into net BEARISH CVD orderflow slope. Institutional distribution detected.',
       gateDetails: { orderflowState: orderflow.orderflowState },
     };
   }
@@ -310,7 +294,7 @@ export function evaluateStrictEntryPolicies(params: {
     return {
       allowed: false,
       blockedBy: 'CONFLICTED_ORDERFLOW',
-      reason: 'Conflicted Orderflow Blocker: Cannot take SHORT trade into net BULLISH CVD orderflow slope.',
+      reason: 'Conflicted Orderflow Blocker: Cannot take SHORT trade into net BULLISH CVD orderflow slope. Institutional accumulation detected.',
       gateDetails: { orderflowState: orderflow.orderflowState },
     };
   }

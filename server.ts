@@ -151,6 +151,7 @@ let settings: PlatformSettings = {
   scanIntervalSeconds: 5,
   circuitBreakerPct: -3.0,
   trailingStopMultiplier: 1.5,
+  minSniperScore: 70,
 };
 
 let stats: PlatformStats = {
@@ -600,22 +601,19 @@ function evaluatePairState(symbol: string, candles: Candle[]): PairMarketState {
   const low24h = Math.min(...candles.map(c => c.low));
   const volume24h = Math.round(candles.reduce((sum, c) => sum + c.volume, 0));
 
-  const spatial = calculateSpatialMetrics(candles, currentPrice);
-  const orderflow = computeOrderflowMetrics(candles, [{ oi: 10000, timestamp: 0 }, { oi: 10180, timestamp: 1 }]);
-  const { adx, plusDI, minusDI } = calculateADX(candles, 14);
-  const rvol = calculateRVOL(candles, 20);
-
-  // Symbol regime
-  let regime: PairMarketState['regime'] = 'RANGE';
   const closes = candles.map(c => c.close);
   const ema21Series = calculateEMA(closes, 21);
   const ema50Series = calculateEMA(closes, 50);
   const ema21 = ema21Series[ema21Series.length - 1] || currentPrice;
   const ema50 = ema50Series[ema50Series.length - 1] || currentPrice;
+  const { adx, plusDI, minusDI } = calculateADX(candles, 14);
+  const rvol = calculateRVOL(candles, 20);
 
-  if (currentPrice > ema21 && ema21 > ema50 && adx > 22) {
+  // Symbol regime: detect momentum breakouts and trends accurately
+  let regime: PairMarketState['regime'] = 'RANGE';
+  if ((currentPrice >= ema21 && plusDI > minusDI) || (currentPrice >= ema50 && ema21 >= ema50)) {
     regime = 'TREND_UP';
-  } else if (currentPrice < ema21 && ema21 < ema50 && adx > 22) {
+  } else if ((currentPrice <= ema21 && minusDI > plusDI) || (currentPrice <= ema50 && ema21 <= ema50)) {
     regime = 'TREND_DOWN';
   } else {
     regime = 'RANGE';
@@ -638,22 +636,28 @@ function evaluatePairState(symbol: string, candles: Candle[]): PairMarketState {
     }
   }
 
+  // Compute spatial metrics with directional candidateSide awareness
+  const spatial = calculateSpatialMetrics(candles, currentPrice, candidateSide);
+  const orderflow = computeOrderflowMetrics(candles, [{ oi: 10000, timestamp: 0 }, { oi: 10180, timestamp: 1 }]);
+
   // Calculate Conviction / Sniper Score (0-100)
-  let sniperScore = 40;
+  let sniperScore = 45;
   if (candidateSide === 'LONG') {
     if (btcContext.regime === 'BULL_STRONG') sniperScore += 25;
-    else if (btcContext.regime === 'BULL_WEAK') sniperScore += 15;
+    else if (btcContext.regime === 'BULL_WEAK') sniperScore += 18;
     if (orderflow.orderflowState === 'BULLISH') sniperScore += 20;
-    if (regime === 'TREND_UP') sniperScore += 10;
+    else if (orderflow.orderflowState === 'MIXED') sniperScore += 10;
+    if (regime === 'TREND_UP') sniperScore += 12;
   } else if (candidateSide === 'SHORT') {
     if (btcContext.regime === 'BEAR_STRONG') sniperScore += 25;
-    else if (btcContext.regime === 'BEAR_WEAK') sniperScore += 15;
+    else if (btcContext.regime === 'BEAR_WEAK') sniperScore += 18;
     if (orderflow.orderflowState === 'BEARISH') sniperScore += 20;
-    if (regime === 'TREND_DOWN') sniperScore += 10;
+    else if (orderflow.orderflowState === 'MIXED') sniperScore += 10;
+    if (regime === 'TREND_DOWN') sniperScore += 12;
   }
   if (spatial.spatialStatus === 'CLEAR') sniperScore += 15;
-  if (rvol >= 1.5) sniperScore += 10;
-  if (adx >= 25) sniperScore += 10;
+  if (rvol >= 1.0) sniperScore += 8;
+  if (adx >= 20) sniperScore += 8;
   if (spatial.spatialStatus === 'BAD_LOCATION') sniperScore = Math.min(sniperScore, 20);
   if (spatial.spatialStatus === 'WAITING_FOR_RETEST') sniperScore = Math.min(sniperScore, 35);
   sniperScore = Math.min(98, Math.max(10, sniperScore));
@@ -766,7 +770,8 @@ async function runEngineCycle() {
         state.candidateSide !== 'NONE'
       ) {
         const alreadyOpen = activePositions.some(p => p.symbol === sym && p.status === 'OPEN');
-        if (!alreadyOpen && state.sniperScore >= 80) {
+        const minScore = settings.minSniperScore ?? 70;
+        if (!alreadyOpen && state.sniperScore >= minScore) {
           // Open high-conviction sniper trade
           const riskUsd = (stats.portfolioBalance * (settings.riskPerTradePct / 100)) * btcContext.regimeRiskMult;
           const stopDist = Math.max(state.price * 0.008, state.spatial.atr14 * 1.5);

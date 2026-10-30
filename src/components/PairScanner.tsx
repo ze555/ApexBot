@@ -55,7 +55,11 @@ export const PairScanner: React.FC<PairScannerProps> = ({
             <div
               key={pair.symbol}
               className={`bg-slate-950/70 border rounded-xl p-3.5 flex flex-col justify-between transition-all hover:border-slate-700 ${
-                pair.sniperScore >= 80 ? 'border-cyan-500/40 shadow-sm shadow-cyan-500/10' : 'border-slate-800'
+                pair.sniperScore >= 70 && !hasGateLock
+                  ? 'border-cyan-500/50 shadow-md shadow-cyan-500/10 bg-slate-900/90 ring-1 ring-cyan-500/30'
+                  : pair.sniperScore >= 60
+                  ? 'border-slate-700'
+                  : 'border-slate-800'
               }`}
             >
               {/* Row 1: Symbol & Price */}
@@ -79,7 +83,7 @@ export const PairScanner: React.FC<PairScannerProps> = ({
                   <div className="text-right">
                     <span className="text-[10px] text-slate-400 block font-mono">Sniper Score</span>
                     <span className={`font-mono font-bold text-sm ${
-                      pair.sniperScore >= 80 ? 'text-emerald-400' : pair.sniperScore >= 50 ? 'text-cyan-400' : 'text-slate-400'
+                      pair.sniperScore >= 70 ? 'text-emerald-400' : pair.sniperScore >= 50 ? 'text-cyan-400' : 'text-slate-400'
                     }`}>
                       {pair.sniperScore}%
                     </span>

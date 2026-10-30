@@ -221,6 +221,7 @@ export interface PlatformSettings {
   scanIntervalSeconds: number;
   circuitBreakerPct: number; // e.g. -3.0%
   trailingStopMultiplier: number;
+  minSniperScore?: number; // Minimum sniper conviction score required to open trades (default 70)
 }
 
 export type ErrorSeverity = 'FATAL' | 'ERROR' | 'WARN' | 'INFO';
