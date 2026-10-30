@@ -621,12 +621,21 @@ function evaluatePairState(symbol: string, candles: Candle[]): PairMarketState {
     regime = 'RANGE';
   }
 
-  // Candidate side
+  // Candidate side aligned with institutional macro regime policy
   let candidateSide: 'LONG' | 'SHORT' | 'NONE' = 'NONE';
-  if (regime === 'TREND_UP' || plusDI > minusDI) {
+  if (btcContext.regime === 'BULL_STRONG' || btcContext.regime === 'BULL_WEAK') {
+    // In a macro BULL regime, institutional policy strictly trades the long side
     candidateSide = 'LONG';
-  } else if (regime === 'TREND_DOWN' || minusDI > plusDI) {
+  } else if (btcContext.regime === 'BEAR_STRONG' || btcContext.regime === 'BEAR_WEAK') {
+    // In a macro BEAR regime, institutional policy strictly trades the short side
     candidateSide = 'SHORT';
+  } else {
+    // In a neutral/range macro market, follow the individual asset's dominant momentum
+    if (regime === 'TREND_UP' || plusDI > minusDI) {
+      candidateSide = 'LONG';
+    } else if (regime === 'TREND_DOWN' || minusDI > plusDI) {
+      candidateSide = 'SHORT';
+    }
   }
 
   // Calculate Conviction / Sniper Score (0-100)
@@ -635,10 +644,12 @@ function evaluatePairState(symbol: string, candles: Candle[]): PairMarketState {
     if (btcContext.regime === 'BULL_STRONG') sniperScore += 25;
     else if (btcContext.regime === 'BULL_WEAK') sniperScore += 15;
     if (orderflow.orderflowState === 'BULLISH') sniperScore += 20;
+    if (regime === 'TREND_UP') sniperScore += 10;
   } else if (candidateSide === 'SHORT') {
     if (btcContext.regime === 'BEAR_STRONG') sniperScore += 25;
     else if (btcContext.regime === 'BEAR_WEAK') sniperScore += 15;
     if (orderflow.orderflowState === 'BEARISH') sniperScore += 20;
+    if (regime === 'TREND_DOWN') sniperScore += 10;
   }
   if (spatial.spatialStatus === 'CLEAR') sniperScore += 15;
   if (rvol >= 1.5) sniperScore += 10;

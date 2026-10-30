@@ -919,20 +919,28 @@ function evaluatePairState(symbol, candles) {
     regime = "RANGE";
   }
   let candidateSide = "NONE";
-  if (regime === "TREND_UP" || plusDI > minusDI) {
+  if (btcContext.regime === "BULL_STRONG" || btcContext.regime === "BULL_WEAK") {
     candidateSide = "LONG";
-  } else if (regime === "TREND_DOWN" || minusDI > plusDI) {
+  } else if (btcContext.regime === "BEAR_STRONG" || btcContext.regime === "BEAR_WEAK") {
     candidateSide = "SHORT";
+  } else {
+    if (regime === "TREND_UP" || plusDI > minusDI) {
+      candidateSide = "LONG";
+    } else if (regime === "TREND_DOWN" || minusDI > plusDI) {
+      candidateSide = "SHORT";
+    }
   }
   let sniperScore = 40;
   if (candidateSide === "LONG") {
     if (btcContext.regime === "BULL_STRONG") sniperScore += 25;
     else if (btcContext.regime === "BULL_WEAK") sniperScore += 15;
     if (orderflow.orderflowState === "BULLISH") sniperScore += 20;
+    if (regime === "TREND_UP") sniperScore += 10;
   } else if (candidateSide === "SHORT") {
     if (btcContext.regime === "BEAR_STRONG") sniperScore += 25;
     else if (btcContext.regime === "BEAR_WEAK") sniperScore += 15;
     if (orderflow.orderflowState === "BEARISH") sniperScore += 20;
+    if (regime === "TREND_DOWN") sniperScore += 10;
   }
   if (spatial.spatialStatus === "CLEAR") sniperScore += 15;
   if (rvol >= 1.5) sniperScore += 10;
