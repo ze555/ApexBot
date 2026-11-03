@@ -399,9 +399,10 @@ function evaluateStrictEntryPolicies(params) {
     plusDI,
     minusDI,
     dailyDrawdownPct,
-    circuitBreakerThresholdPct = -3
+    circuitBreakerThresholdPct = -3,
+    circuitBreakerEnabled = true
   } = params;
-  if (dailyDrawdownPct <= circuitBreakerThresholdPct) {
+  if (circuitBreakerEnabled && dailyDrawdownPct <= circuitBreakerThresholdPct) {
     return {
       allowed: false,
       blockedBy: "CIRCUIT_BREAKER",
@@ -520,7 +521,10 @@ function evaluateExitBrain(params) {
     oiChgPct,
     atr14,
     rvol,
-    adx
+    adx,
+    beastMode = false,
+    quickTp1Enabled = true,
+    stagnationTimeoutMinutes = 45
   } = params;
   if (position.status === "CLOSED") {
     return { updatedPosition: position, actionTaken: "NONE", description: "Position is already closed." };
@@ -533,10 +537,32 @@ function evaluateExitBrain(params) {
   p.peakR = Math.max(p.peakR, p.currentR);
   const priceDiff = isLong ? currentPrice - p.entryPrice : p.entryPrice - currentPrice;
   p.unrealizedPnl = Math.round(priceDiff * p.currentQuantity * 100) / 100;
-  if (p.stage === "STAGE_INITIAL" && p.currentR <= -0.3) {
+  if (beastMode && p.stage === "STAGE_INITIAL" && p.entryTime) {
+    const ageMinutes = (Date.now() - p.entryTime) / (60 * 1e3);
+    const timeout = stagnationTimeoutMinutes || 45;
+    if (ageMinutes >= timeout && Math.abs(p.currentR) <= 0.15 && rvol < 0.9) {
+      const exitPrice = currentPrice;
+      const realizedLoss = Math.round(priceDiff * p.currentQuantity * 100) / 100;
+      p.status = "CLOSED";
+      p.closeReason = "STAGNATION_ROTATION";
+      p.qualityRating = "DISCIPLINED_EARLY_CUT";
+      p.realizedPnl += realizedLoss;
+      p.unrealizedPnl = 0;
+      p.exitPrice = exitPrice;
+      p.exitTime = Date.now();
+      p.notes = `Stagnation Capital Rotation: Position flat for ${Math.round(ageMinutes)}m with low RVOL. Capital freed up for high-velocity runner.`;
+      return {
+        updatedPosition: p,
+        actionTaken: "CLOSED_EARLY_INVALIDATION",
+        description: p.notes
+      };
+    }
+  }
+  const earlyCutThreshold = beastMode ? -0.2 : -0.3;
+  if (p.stage === "STAGE_INITIAL" && p.currentR <= earlyCutThreshold) {
     const last2Closes = candleCloses15m.slice(-2);
-    const structuralFailure = last2Closes.length >= 2 && (isLong ? last2Closes[0] < ema21 && last2Closes[1] < ema21 : last2Closes[0] > ema21 && last2Closes[1] > ema21);
-    const counterOrderflowFlip = isLong ? cvdSlope15m < -60 || cvdSlope5m < -80 : cvdSlope15m > 60 || cvdSlope5m > 80;
+    const structuralFailure = beastMode ? isLong ? currentPrice < ema21 : currentPrice > ema21 : last2Closes.length >= 2 && (isLong ? last2Closes[0] < ema21 && last2Closes[1] < ema21 : last2Closes[0] > ema21 && last2Closes[1] > ema21);
+    const counterOrderflowFlip = isLong ? cvdSlope15m < -50 || cvdSlope5m < -60 : cvdSlope15m > 50 || cvdSlope5m > 60;
     if (structuralFailure || counterOrderflowFlip) {
       const exitPrice = currentPrice;
       const realizedLoss = Math.round(priceDiff * p.currentQuantity * 100) / 100;
@@ -547,8 +573,8 @@ function evaluateExitBrain(params) {
       p.unrealizedPnl = 0;
       p.exitPrice = exitPrice;
       p.exitTime = Date.now();
-      const reasonDetail = structuralFailure ? "2 consecutive 15m closes violated EMA21" : "Aggressive counter-institutional orderflow flip";
-      p.notes = `Smart Early Invalidation Cut executed at ${p.currentR.toFixed(2)}R (${reasonDetail}). Saved ~68% of risk capital!`;
+      const reasonDetail = structuralFailure ? beastMode ? "Price broke 15m EMA21 structure" : "2 consecutive 15m closes violated EMA21" : "Aggressive counter-institutional orderflow flip";
+      p.notes = `Smart Early Invalidation Cut executed at ${p.currentR.toFixed(2)}R (${reasonDetail}). Saved ~${beastMode ? "75%" : "68%"} of risk capital!`;
       return {
         updatedPosition: p,
         actionTaken: "CLOSED_EARLY_INVALIDATION",
@@ -600,24 +626,25 @@ function evaluateExitBrain(params) {
       };
     }
   }
-  if (p.stage === "STAGE_INITIAL" && p.currentR >= 0.75) {
+  const tp1Target = beastMode && quickTp1Enabled !== false ? 0.5 : 0.75;
+  if (p.stage === "STAGE_INITIAL" && p.currentR >= tp1Target) {
     const closeQty = p.initialQuantity * 0.4;
     const partialPnl = Math.round(priceDiff * closeQty * 100) / 100;
     p.currentQuantity = Math.max(0, p.currentQuantity - closeQty);
     p.realizedPnl += partialPnl;
     p.stage = "STAGE_TP1_LOCKED";
-    const beOffset = riskDist * 0.2;
+    const beOffset = riskDist * (beastMode ? 0.15 : 0.2);
     p.stopLoss = isLong ? p.entryPrice + beOffset : p.entryPrice - beOffset;
     p.stopLoss = Math.round(p.stopLoss * 1e4) / 1e4;
     p.partialCloses.push({
-      stage: "TP1 (+0.75R)",
+      stage: `TP1 (+${tp1Target.toFixed(2)}R)`,
       price: currentPrice,
       quantityPct: 40,
       pnlUsd: partialPnl,
-      pnlR: 0.75,
+      pnlR: tp1Target,
       timestamp: Date.now()
     });
-    const desc = `TP1 Hit at +${p.currentR.toFixed(2)}R! Scaled out 40% (+$${partialPnl}). Stop Loss moved to Entry + 0.20R (${p.stopLoss}) \u2014 trade is now guaranteed risk-free!`;
+    const desc = `TP1 Hit at +${p.currentR.toFixed(2)}R! Scaled out 40% (+$${partialPnl}). Stop Loss moved to Entry + ${(beastMode ? 0.15 : 0.2).toFixed(2)}R (${p.stopLoss}) \u2014 trade is now guaranteed risk-free profit!`;
     return { updatedPosition: p, actionTaken: "TP1_HIT", description: desc };
   }
   if (p.stage === "STAGE_TP1_LOCKED" && p.currentR >= 1.8) {
@@ -771,6 +798,7 @@ function recordSystemError(error) {
     systemHealth.status = "OPERATIONAL";
   }
 }
+var lastCircuitBreakerTripTime = 0;
 var settings = {
   initialCapital: 1e3,
   autoExecution: true,
@@ -779,11 +807,21 @@ var settings = {
   // 1% of portfolio ($10 risk per trade on $1,000)
   maxLeverage: 5,
   // Institutional leverage cap (5x default)
-  maxOpenPositions: 4,
+  maxOpenPositions: 6,
+  // Expanded default so universe pairs trade concurrently without bottleneck
   scanIntervalSeconds: 5,
   circuitBreakerPct: -3,
+  circuitBreakerEnabled: false,
+  // Default is FALSE: النظام لا يتوقف بالديفولت
+  beastMode: true,
+  // Default is TRUE: Ruthless profit hunter & micro-loss avoider
   trailingStopMultiplier: 1.5,
-  minSniperScore: 70
+  minSniperScore: 60,
+  // 60% Active Sniper Hunting
+  quickTp1Enabled: true,
+  // Quick lock at +0.50R
+  stagnationTimeoutMinutes: 45
+  // Capital recycling for flat positions
 };
 var stats = {
   portfolioBalance: 1e3,
@@ -974,7 +1012,8 @@ function evaluatePairState(symbol, candles) {
     plusDI,
     minusDI,
     dailyDrawdownPct: stats.dailyDrawdownPct,
-    circuitBreakerThresholdPct: settings.circuitBreakerPct
+    circuitBreakerThresholdPct: settings.circuitBreakerPct,
+    circuitBreakerEnabled: settings.circuitBreakerEnabled
   });
   return {
     symbol,
@@ -1036,9 +1075,9 @@ async function runEngineCycle() {
           if (auditLogs.length > 50) auditLogs.pop();
         }
       }
-      if (settings.autoExecution && !stats.circuitBreakerTripped && activePositions.length < settings.maxOpenPositions && state.lastGateResult.allowed && state.candidateSide !== "NONE") {
+      if (settings.autoExecution && (!settings.circuitBreakerEnabled || !stats.circuitBreakerTripped) && activePositions.length < settings.maxOpenPositions && state.lastGateResult.allowed && state.candidateSide !== "NONE") {
         const alreadyOpen = activePositions.some((p) => p.symbol === sym && p.status === "OPEN");
-        const minScore = settings.minSniperScore ?? 70;
+        const minScore = settings.minSniperScore ?? 60;
         if (!alreadyOpen && state.sniperScore >= minScore) {
           const riskUsd = stats.portfolioBalance * (settings.riskPerTradePct / 100) * btcContext.regimeRiskMult;
           const stopDist = Math.max(state.price * 8e-3, state.spatial.atr14 * 1.5);
@@ -1120,7 +1159,10 @@ async function runEngineCycle() {
         oiChgPct: orderflow.oiChgPct,
         atr14,
         rvol,
-        adx
+        adx,
+        beastMode: settings.beastMode,
+        quickTp1Enabled: settings.quickTp1Enabled,
+        stagnationTimeoutMinutes: settings.stagnationTimeoutMinutes
       });
       if (exitEval.updatedPosition.status === "CLOSED") {
         closedTrades.unshift(exitEval.updatedPosition);
@@ -1131,8 +1173,8 @@ async function runEngineCycle() {
           stats.winningTrades++;
         } else {
           stats.losingTrades++;
-          if (exitEval.updatedPosition.closeReason === "EARLY_INVALIDATION") {
-            stats.savedCapitalUsd += Math.abs(pos.riskDistance * pos.initialQuantity * 0.68);
+          if (exitEval.updatedPosition.closeReason === "EARLY_INVALIDATION" || exitEval.updatedPosition.closeReason === "STAGNATION_ROTATION") {
+            stats.savedCapitalUsd += Math.abs(pos.riskDistance * pos.initialQuantity * (settings.beastMode ? 0.75 : 0.68));
           }
         }
         stats.dailyRealizedPnl += exitEval.updatedPosition.realizedPnl;
@@ -1148,8 +1190,16 @@ async function runEngineCycle() {
     stats.portfolioBalance = Math.round((stats.startOfDayBalance + stats.dailyTotalPnl) * 100) / 100;
     const drawdownPct = Math.min(0, (stats.portfolioBalance - stats.startOfDayBalance) / stats.startOfDayBalance * 100);
     stats.dailyDrawdownPct = Math.round(drawdownPct * 100) / 100;
-    if (stats.dailyDrawdownPct <= settings.circuitBreakerPct) {
-      stats.circuitBreakerTripped = true;
+    if (settings.circuitBreakerEnabled && stats.dailyDrawdownPct <= settings.circuitBreakerPct) {
+      if (!stats.circuitBreakerTripped) {
+        stats.circuitBreakerTripped = true;
+        lastCircuitBreakerTripTime = Date.now();
+      }
+    } else if (!settings.circuitBreakerEnabled) {
+      stats.circuitBreakerTripped = false;
+    }
+    if (stats.circuitBreakerTripped && Date.now() - lastCircuitBreakerTripTime > 10 * 60 * 1e3) {
+      stats.circuitBreakerTripped = false;
     }
     if (stats.totalTrades > 0) {
       stats.winRatePct = Math.round(stats.winningTrades / stats.totalTrades * 1e3) / 10;
@@ -1195,6 +1245,9 @@ app.get("/api/settings", (_req, res) => {
 });
 app.post("/api/settings", (req, res) => {
   settings = { ...settings, ...req.body };
+  if (!settings.circuitBreakerEnabled) {
+    stats.circuitBreakerTripped = false;
+  }
   if (req.body.initialCapital && typeof req.body.initialCapital === "number" && req.body.initialCapital > 0) {
     stats.startOfDayBalance = req.body.initialCapital;
     stats.portfolioBalance = Math.round((stats.startOfDayBalance + stats.dailyTotalPnl) * 100) / 100;

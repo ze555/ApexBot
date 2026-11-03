@@ -141,17 +141,23 @@ function recordSystemError(error: Omit<SystemErrorLog, 'id' | 'timestamp'>) {
   }
 }
 
+let lastCircuitBreakerTripTime = 0;
+
 let settings: PlatformSettings = {
   initialCapital: 1000,
   autoExecution: true,
   simulationMode: true,
   riskPerTradePct: 1.0, // 1% of portfolio ($10 risk per trade on $1,000)
   maxLeverage: 5, // Institutional leverage cap (5x default)
-  maxOpenPositions: 4,
+  maxOpenPositions: 6, // Expanded default so universe pairs trade concurrently without bottleneck
   scanIntervalSeconds: 5,
   circuitBreakerPct: -3.0,
+  circuitBreakerEnabled: false, // Default is FALSE: النظام لا يتوقف بالديفولت
+  beastMode: true, // Default is TRUE: Ruthless profit hunter & micro-loss avoider
   trailingStopMultiplier: 1.5,
-  minSniperScore: 70,
+  minSniperScore: 60, // 60% Active Sniper Hunting
+  quickTp1Enabled: true, // Quick lock at +0.50R
+  stagnationTimeoutMinutes: 45, // Capital recycling for flat positions
 };
 
 let stats: PlatformStats = {
@@ -676,6 +682,7 @@ function evaluatePairState(symbol: string, candles: Candle[]): PairMarketState {
     minusDI,
     dailyDrawdownPct: stats.dailyDrawdownPct,
     circuitBreakerThresholdPct: settings.circuitBreakerPct,
+    circuitBreakerEnabled: settings.circuitBreakerEnabled,
   });
 
   return {
@@ -764,13 +771,13 @@ async function runEngineCycle() {
       // If autoExecution is active, and trade passes ALL gates, and we have capacity
       if (
         settings.autoExecution &&
-        !stats.circuitBreakerTripped &&
+        (!settings.circuitBreakerEnabled || !stats.circuitBreakerTripped) &&
         activePositions.length < settings.maxOpenPositions &&
         state.lastGateResult.allowed &&
         state.candidateSide !== 'NONE'
       ) {
         const alreadyOpen = activePositions.some(p => p.symbol === sym && p.status === 'OPEN');
-        const minScore = settings.minSniperScore ?? 70;
+        const minScore = settings.minSniperScore ?? 60;
         if (!alreadyOpen && state.sniperScore >= minScore) {
           // Open high-conviction sniper trade
           const riskUsd = (stats.portfolioBalance * (settings.riskPerTradePct / 100)) * btcContext.regimeRiskMult;
@@ -863,6 +870,9 @@ async function runEngineCycle() {
         atr14,
         rvol,
         adx,
+        beastMode: settings.beastMode,
+        quickTp1Enabled: settings.quickTp1Enabled,
+        stagnationTimeoutMinutes: settings.stagnationTimeoutMinutes,
       });
 
       if (exitEval.updatedPosition.status === 'CLOSED') {
@@ -876,8 +886,8 @@ async function runEngineCycle() {
           stats.winningTrades++;
         } else {
           stats.losingTrades++;
-          if (exitEval.updatedPosition.closeReason === 'EARLY_INVALIDATION') {
-            stats.savedCapitalUsd += Math.abs(pos.riskDistance * pos.initialQuantity * 0.68);
+          if (exitEval.updatedPosition.closeReason === 'EARLY_INVALIDATION' || exitEval.updatedPosition.closeReason === 'STAGNATION_ROTATION') {
+            stats.savedCapitalUsd += Math.abs(pos.riskDistance * pos.initialQuantity * (settings.beastMode ? 0.75 : 0.68));
           }
         }
         stats.dailyRealizedPnl += exitEval.updatedPosition.realizedPnl;
@@ -897,8 +907,19 @@ async function runEngineCycle() {
     const drawdownPct = Math.min(0, ((stats.portfolioBalance - stats.startOfDayBalance) / stats.startOfDayBalance) * 100);
     stats.dailyDrawdownPct = Math.round(drawdownPct * 100) / 100;
 
-    if (stats.dailyDrawdownPct <= settings.circuitBreakerPct) {
-      stats.circuitBreakerTripped = true;
+    // Circuit Breaker auto-freeze logic (Non-stopping by default!)
+    if (settings.circuitBreakerEnabled && stats.dailyDrawdownPct <= settings.circuitBreakerPct) {
+      if (!stats.circuitBreakerTripped) {
+        stats.circuitBreakerTripped = true;
+        lastCircuitBreakerTripTime = Date.now();
+      }
+    } else if (!settings.circuitBreakerEnabled) {
+      stats.circuitBreakerTripped = false;
+    }
+
+    // Auto-recovery mechanism: If circuit breaker tripped was engaged, auto-reset after 10 minutes cooldown
+    if (stats.circuitBreakerTripped && Date.now() - lastCircuitBreakerTripTime > 10 * 60 * 1000) {
+      stats.circuitBreakerTripped = false;
     }
 
     if (stats.totalTrades > 0) {
@@ -962,6 +983,9 @@ app.get('/api/settings', (_req, res) => {
 
 app.post('/api/settings', (req, res) => {
   settings = { ...settings, ...req.body };
+  if (!settings.circuitBreakerEnabled) {
+    stats.circuitBreakerTripped = false;
+  }
   if (req.body.initialCapital && typeof req.body.initialCapital === 'number' && req.body.initialCapital > 0) {
     stats.startOfDayBalance = req.body.initialCapital;
     stats.portfolioBalance = Math.round((stats.startOfDayBalance + stats.dailyTotalPnl) * 100) / 100;

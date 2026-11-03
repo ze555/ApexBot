@@ -157,6 +157,7 @@ export function evaluateStrictEntryPolicies(params: {
   minusDI: number;
   dailyDrawdownPct: number;
   circuitBreakerThresholdPct?: number; // default -3.0%
+  circuitBreakerEnabled?: boolean; // Default true, but if false allows continuous trading without freeze
 }): GateEvaluation {
   const {
     candidateSide,
@@ -171,11 +172,12 @@ export function evaluateStrictEntryPolicies(params: {
     minusDI,
     dailyDrawdownPct,
     circuitBreakerThresholdPct = -3.0,
+    circuitBreakerEnabled = true,
   } = params;
 
   // Gate 0: Daily Circuit Breaker Gate
-  // If cumulative daily realized + unrealized drawdown reaches -3.0%, freeze all new signal entries
-  if (dailyDrawdownPct <= circuitBreakerThresholdPct) {
+  // If enabled and cumulative daily drawdown reaches threshold, freeze new entries
+  if (circuitBreakerEnabled && dailyDrawdownPct <= circuitBreakerThresholdPct) {
     return {
       allowed: false,
       blockedBy: 'CIRCUIT_BREAKER',
@@ -331,6 +333,9 @@ export function evaluateExitBrain(params: {
   atr14: number;
   rvol: number;
   adx: number;
+  beastMode?: boolean;
+  quickTp1Enabled?: boolean;
+  stagnationTimeoutMinutes?: number;
 }): {
   updatedPosition: TradePosition;
   actionTaken: 'NONE' | 'TP1_HIT' | 'TP2_HIT' | 'TRAILING_STOP_UPDATED' | 'CLOSED_FULL_SL' | 'CLOSED_TP_SL' | 'CLOSED_RUNNER' | 'CLOSED_EXHAUSTION' | 'CLOSED_EARLY_INVALIDATION';
@@ -347,6 +352,9 @@ export function evaluateExitBrain(params: {
     atr14,
     rvol,
     adx,
+    beastMode = false,
+    quickTp1Enabled = true,
+    stagnationTimeoutMinutes = 45,
   } = params;
 
   if (position.status === 'CLOSED') {
@@ -370,23 +378,50 @@ export function evaluateExitBrain(params: {
   p.unrealizedPnl = Math.round(priceDiff * p.currentQuantity * 100) / 100;
 
   // -------------------------------------------------------------
-  // RULE 1: Smart Early Loss Mitigation (Early Invalidation Cut at -0.30R to -0.35R)
-  // If position slips below -0.30R and experiences:
-  // - Structural failure (2 consecutive 15m candle closes violating EMA21 against position direction), OR
-  // - Aggressive counter-institutional orderflow flip (CVD slope counter spike)
-  // Exit immediately at -0.30R to -0.35R. Do NOT wait for full -1.0R Stop Loss!
+  // RULE 0: Stagnation Capital Rotation (Beast Mode)
+  // If trade is in STAGE_INITIAL for > 45 minutes with no directional momentum (|currentR| < 0.15 and rvol < 0.9)
   // -------------------------------------------------------------
-  if (p.stage === 'STAGE_INITIAL' && p.currentR <= -0.30) {
+  if (beastMode && p.stage === 'STAGE_INITIAL' && p.entryTime) {
+    const ageMinutes = (Date.now() - p.entryTime) / (60 * 1000);
+    const timeout = stagnationTimeoutMinutes || 45;
+    if (ageMinutes >= timeout && Math.abs(p.currentR) <= 0.15 && rvol < 0.9) {
+      const exitPrice = currentPrice;
+      const realizedLoss = Math.round(priceDiff * p.currentQuantity * 100) / 100;
+      p.status = 'CLOSED';
+      p.closeReason = 'STAGNATION_ROTATION';
+      p.qualityRating = 'DISCIPLINED_EARLY_CUT';
+      p.realizedPnl += realizedLoss;
+      p.unrealizedPnl = 0;
+      p.exitPrice = exitPrice;
+      p.exitTime = Date.now();
+      p.notes = `Stagnation Capital Rotation: Position flat for ${Math.round(ageMinutes)}m with low RVOL. Capital freed up for high-velocity runner.`;
+      return {
+        updatedPosition: p,
+        actionTaken: 'CLOSED_EARLY_INVALIDATION',
+        description: p.notes,
+      };
+    }
+  }
+
+  // -------------------------------------------------------------
+  // RULE 1: Smart Early Loss Mitigation (Early Invalidation Cut at -0.20R to -0.35R)
+  // If position slips below threshold and experiences structural breakdown:
+  // Exit immediately. Do NOT wait for full -1.0R Stop Loss!
+  // -------------------------------------------------------------
+  const earlyCutThreshold = beastMode ? -0.20 : -0.30;
+  if (p.stage === 'STAGE_INITIAL' && p.currentR <= earlyCutThreshold) {
     const last2Closes = candleCloses15m.slice(-2);
-    const structuralFailure = last2Closes.length >= 2 && (
-      isLong
-        ? (last2Closes[0] < ema21 && last2Closes[1] < ema21)
-        : (last2Closes[0] > ema21 && last2Closes[1] > ema21)
-    );
+    const structuralFailure = beastMode
+      ? (isLong ? currentPrice < ema21 : currentPrice > ema21)
+      : (last2Closes.length >= 2 && (
+          isLong
+            ? (last2Closes[0] < ema21 && last2Closes[1] < ema21)
+            : (last2Closes[0] > ema21 && last2Closes[1] > ema21)
+        ));
 
     const counterOrderflowFlip = isLong
-      ? (cvdSlope15m < -60 || cvdSlope5m < -80)
-      : (cvdSlope15m > 60 || cvdSlope5m > 80);
+      ? (cvdSlope15m < -50 || cvdSlope5m < -60)
+      : (cvdSlope15m > 50 || cvdSlope5m > 60);
 
     if (structuralFailure || counterOrderflowFlip) {
       const exitPrice = currentPrice;
@@ -399,9 +434,9 @@ export function evaluateExitBrain(params: {
       p.exitPrice = exitPrice;
       p.exitTime = Date.now();
       const reasonDetail = structuralFailure
-        ? '2 consecutive 15m closes violated EMA21'
+        ? (beastMode ? 'Price broke 15m EMA21 structure' : '2 consecutive 15m closes violated EMA21')
         : 'Aggressive counter-institutional orderflow flip';
-      p.notes = `Smart Early Invalidation Cut executed at ${p.currentR.toFixed(2)}R (${reasonDetail}). Saved ~68% of risk capital!`;
+      p.notes = `Smart Early Invalidation Cut executed at ${p.currentR.toFixed(2)}R (${reasonDetail}). Saved ~${beastMode ? '75%' : '68%'} of risk capital!`;
 
       return {
         updatedPosition: p,
@@ -474,10 +509,11 @@ export function evaluateExitBrain(params: {
 
   // -------------------------------------------------------------
   // RULE 4: Multi-Stage Take Profits
-  // Stage 1: Quick Win & Breakeven Lock (TP1 at +0.75R)
-  // Close 40% of the position. Move SL to Entry + 0.20R.
+  // Stage 1: Quick Win & Breakeven Lock (TP1 at +0.50R in Beast Mode, +0.75R in Standard)
+  // Close 40% of the position. Move SL to Entry + guaranteed profit floor.
   // -------------------------------------------------------------
-  if (p.stage === 'STAGE_INITIAL' && p.currentR >= 0.75) {
+  const tp1Target = (beastMode && quickTp1Enabled !== false) ? 0.50 : 0.75;
+  if (p.stage === 'STAGE_INITIAL' && p.currentR >= tp1Target) {
     const closeQty = p.initialQuantity * 0.40;
     const partialPnl = Math.round(priceDiff * closeQty * 100) / 100;
 
@@ -485,21 +521,21 @@ export function evaluateExitBrain(params: {
     p.realizedPnl += partialPnl;
     p.stage = 'STAGE_TP1_LOCKED';
 
-    // Move Stop Loss to Entry + 0.20R (locking guaranteed risk-free floor)
-    const beOffset = riskDist * 0.20;
+    // Move Stop Loss to Entry + 0.20R (or 0.15R for beast quick lock)
+    const beOffset = riskDist * (beastMode ? 0.15 : 0.20);
     p.stopLoss = isLong ? (p.entryPrice + beOffset) : (p.entryPrice - beOffset);
     p.stopLoss = Math.round(p.stopLoss * 10000) / 10000;
 
     p.partialCloses.push({
-      stage: 'TP1 (+0.75R)',
+      stage: `TP1 (+${tp1Target.toFixed(2)}R)`,
       price: currentPrice,
       quantityPct: 40,
       pnlUsd: partialPnl,
-      pnlR: 0.75,
+      pnlR: tp1Target,
       timestamp: Date.now(),
     });
 
-    const desc = `TP1 Hit at +${p.currentR.toFixed(2)}R! Scaled out 40% (+$${partialPnl}). Stop Loss moved to Entry + 0.20R (${p.stopLoss}) — trade is now guaranteed risk-free!`;
+    const desc = `TP1 Hit at +${p.currentR.toFixed(2)}R! Scaled out 40% (+$${partialPnl}). Stop Loss moved to Entry + ${(beastMode ? 0.15 : 0.20).toFixed(2)}R (${p.stopLoss}) — trade is now guaranteed risk-free profit!`;
     return { updatedPosition: p, actionTaken: 'TP1_HIT', description: desc };
   }
 

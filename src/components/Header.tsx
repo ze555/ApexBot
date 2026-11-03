@@ -149,16 +149,20 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Circuit Breaker Status */}
+          {/* Circuit Breaker & Unstoppable Status */}
           <div className={`px-3 py-1.5 rounded-lg border flex items-center gap-2 text-xs font-mono ${
             stats.circuitBreakerTripped 
               ? 'bg-rose-950/40 text-rose-300 border-rose-800' 
+              : !settings.circuitBreakerEnabled
+              ? 'bg-emerald-950/30 text-emerald-300 border-emerald-800/60'
               : 'bg-slate-950/70 text-slate-300 border-slate-800'
           }`}>
             <Shield className={`h-3.5 w-3.5 ${stats.circuitBreakerTripped ? 'text-rose-400 animate-bounce' : 'text-emerald-400'}`} />
             <span>
               {stats.circuitBreakerTripped 
-                ? 'CIRCUIT TRIPPED (-3%)' 
+                ? 'CIRCUIT TRIPPED' 
+                : !settings.circuitBreakerEnabled
+                ? 'UNSTOPPABLE (لا يتوقف)'
                 : `SHIELD (${stats.dailyDrawdownPct.toFixed(2)}% / ${settings.circuitBreakerPct}%)`}
             </span>
             {stats.circuitBreakerTripped && (
@@ -174,6 +178,20 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Interactive Controls & Actions */}
         <div className="flex items-center gap-2">
+          {/* Beast Mode quick toggle */}
+          <button
+            onClick={() => onUpdateSettings({ beastMode: !settings.beastMode })}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer border transition-all ${
+              settings.beastMode
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 shadow-sm shadow-amber-500/10'
+                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+            }`}
+            title="Toggle Beast Mode (نظام الوحش: اقتناص سريع وقطع الخسائر فوراً)"
+          >
+            <Zap className={`h-3.5 w-3.5 ${settings.beastMode ? 'text-amber-400 fill-current' : ''}`} />
+            <span>{settings.beastMode ? 'BEAST: ON' : 'BEAST: OFF'}</span>
+          </button>
+
           {/* Mode toggle */}
           <button
             onClick={() => onUpdateSettings({ autoExecution: !settings.autoExecution })}

@@ -138,7 +138,8 @@ export interface TradePosition {
     | 'EXHAUSTION_EXIT'
     | 'EARLY_INVALIDATION'
     | 'EMERGENCY_FLATTEN'
-    | 'MANUAL_EXIT';
+    | 'MANUAL_EXIT'
+    | 'STAGNATION_ROTATION';
   qualityRating:
     | 'EXEMPLARY_SNIPER'
     | 'GOOD_ENTRY'
@@ -217,11 +218,15 @@ export interface PlatformSettings {
   simulationMode: boolean;
   riskPerTradePct: number; // 0.5% - 2.5%
   maxLeverage: number; // Institutional leverage cap (default 5x, range 1x to 20x)
-  maxOpenPositions: number;
+  maxOpenPositions: number; // Max concurrent open positions (default 6, range 1 to 8)
   scanIntervalSeconds: number;
   circuitBreakerPct: number; // e.g. -3.0%
+  circuitBreakerEnabled: boolean; // Default FALSE: النظام لا يتوقف بالديفولت
+  beastMode: boolean; // Default TRUE: Ruthless profit hunter & micro-loss avoider
   trailingStopMultiplier: number;
-  minSniperScore?: number; // Minimum sniper conviction score required to open trades (default 70)
+  minSniperScore?: number; // Minimum sniper conviction score required to open trades (default 60)
+  quickTp1Enabled?: boolean; // Quick secure profit lock at +0.50R
+  stagnationTimeoutMinutes?: number; // Close flat positions to rotate capital into movers (default 45)
 }
 
 export type ErrorSeverity = 'FATAL' | 'ERROR' | 'WARN' | 'INFO';

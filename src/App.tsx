@@ -72,10 +72,15 @@ export default function App() {
     simulationMode: true,
     riskPerTradePct: 1.0,
     maxLeverage: 5,
-    maxOpenPositions: 4,
+    maxOpenPositions: 6,
     scanIntervalSeconds: 5,
     circuitBreakerPct: -3.0,
+    circuitBreakerEnabled: false,
+    beastMode: true,
     trailingStopMultiplier: 1.5,
+    minSniperScore: 60,
+    quickTp1Enabled: true,
+    stagnationTimeoutMinutes: 45,
   });
 
   const [isExpectancyOpen, setIsExpectancyOpen] = useState(false);

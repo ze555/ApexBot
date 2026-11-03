@@ -95,11 +95,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </p>
           </div>
 
+          {/* BEAST MODE Master Switch */}
+          <div className="p-3.5 rounded-xl bg-gradient-to-r from-amber-950/40 via-rose-950/30 to-slate-950 border border-amber-500/40 shadow-md shadow-amber-500/5">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white text-sm">BEAST MODE (نظام الوحش الذي لا يرحم)</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold uppercase tracking-wider">
+                    {form.beastMode ? 'ACTIVE / نشط' : 'OFF'}
+                  </span>
+                </div>
+                <span className="text-[11px] text-amber-200/80 block mt-1 leading-relaxed">
+                  اقتناص أرباح فوري عند +0.50R، قطع سريع للموجات المعاكسة عند -0.20R لتجنب الخسائر، وتدوير رأس المال بدون توقف.
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                checked={form.beastMode}
+                onChange={(e) => setForm({ ...form, beastMode: e.target.checked })}
+                className="h-5 w-5 rounded accent-amber-400 cursor-pointer ml-3 shrink-0"
+              />
+            </div>
+          </div>
+
           {/* Auto Execution */}
           <div className="flex items-center justify-between p-3 rounded-lg bg-slate-950 border border-slate-800">
             <div>
               <span className="font-bold text-white block">Auto Sniper Execution</span>
-              <span className="text-[11px] text-slate-400">Automatically open trade when all gates pass</span>
+              <span className="text-[11px] text-slate-400">Automatically open trade when all quantitative gates pass</span>
             </div>
             <input
               type="checkbox"
@@ -109,17 +132,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
 
-          {/* Simulation Mode */}
+          {/* Circuit Breaker Auto-Freeze Switch (Default: OFF - Never stop by default) */}
+          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white block">Auto-Freeze Circuit Breaker (تجميد البوت عند التراجع)</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                    form.circuitBreakerEnabled ? 'bg-rose-950 text-rose-300 border border-rose-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                  }`}>
+                    {form.circuitBreakerEnabled ? 'FREEZE ON' : 'UNSTOPPABLE (موصى به: لا يتوقف)'}
+                  </span>
+                </div>
+                <span className="text-[11px] text-slate-400 block mt-1">
+                  معطل بالافتراضي: النظام لا يتوقف أو يتجمد نهائياً، بل يستمر في اصطياد الأرباح مع إدارة مخاطر ذكية لكل صفقة.
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                checked={form.circuitBreakerEnabled}
+                onChange={(e) => setForm({ ...form, circuitBreakerEnabled: e.target.checked })}
+                className="h-5 w-5 rounded accent-rose-400 cursor-pointer ml-3 shrink-0"
+              />
+            </div>
+
+            {form.circuitBreakerEnabled && (
+              <div className="mt-3 pt-3 border-t border-slate-800/80">
+                <div className="flex justify-between mb-1 text-xs">
+                  <span className="text-slate-300">Daily Drawdown Freeze Limit:</span>
+                  <span className="font-bold text-rose-400">{form.circuitBreakerPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="-5.0"
+                  max="-1.5"
+                  step="0.5"
+                  value={form.circuitBreakerPct}
+                  onChange={(e) => setForm({ ...form, circuitBreakerPct: parseFloat(e.target.value) })}
+                  className="w-full accent-rose-400 cursor-pointer"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Quick TP1 & Micro Protection */}
           <div className="flex items-center justify-between p-3 rounded-lg bg-slate-950 border border-slate-800">
             <div>
-              <span className="font-bold text-white block">Institutional Simulation Mode</span>
-              <span className="text-[11px] text-slate-400">Paper trade with real Binance tick data & math</span>
+              <span className="font-bold text-white block">Quick TP1 Lock (+0.50R)</span>
+              <span className="text-[11px] text-slate-400">حجز 40% من الأرباح مبكراً ونقل وقف الخسارة فوق نقطة الدخول لمنع أي تراجع</span>
             </div>
             <input
               type="checkbox"
-              checked={form.simulationMode}
-              onChange={(e) => setForm({ ...form, simulationMode: e.target.checked })}
-              className="h-5 w-5 rounded accent-cyan-400 cursor-pointer"
+              checked={form.quickTp1Enabled ?? true}
+              onChange={(e) => setForm({ ...form, quickTp1Enabled: e.target.checked })}
+              className="h-5 w-5 rounded accent-emerald-400 cursor-pointer ml-3 shrink-0"
             />
           </div>
 
@@ -232,25 +298,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </p>
           </div>
 
-          {/* Daily Circuit Breaker Threshold */}
-          <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
-            <div className="flex justify-between mb-1">
-              <span className="text-slate-300">Daily Circuit Breaker Freeze Threshold:</span>
-              <span className="font-bold text-rose-400">{form.circuitBreakerPct}%</span>
-            </div>
-            <input
-              type="range"
-              min="-5.0"
-              max="-1.5"
-              step="0.5"
-              value={form.circuitBreakerPct}
-              onChange={(e) => setForm({ ...form, circuitBreakerPct: parseFloat(e.target.value) })}
-              className="w-full accent-rose-400 cursor-pointer"
-            />
-            <span className="text-[10px] text-slate-500">
-              If daily portfolio drawdown hits this level, all new entries are frozen for 24h.
-            </span>
-          </div>
 
           {/* Max Open Positions */}
           <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
