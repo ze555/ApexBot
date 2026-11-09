@@ -263,3 +263,40 @@ export interface SystemHealthState {
   totalErrorsLogged: number;
   uptimeSeconds: number;
 }
+
+export interface ExplosiveOpportunity {
+  symbol: string;
+  price: number;
+  change24h: number;
+  quoteVolume24h: number; // in USDT
+  high24h: number;
+  low24h: number;
+  direction: 'LONG' | 'SHORT';
+  impulseType: 'EXPLOSIVE_BULLISH' | 'EXPLOSIVE_BEARISH';
+  impulseStage: 'EARLY_ORIGIN' | 'EXPANDING' | 'OVEREXTENDED';
+  velocityScore: number; // 0 - 100 relative impulse score
+  rangeLocationPct: number; // 0 - 100 where price is in the 24h range
+  reason: string;
+  recommendedEntryPrice: number;
+  suggestedStopLoss: number;
+  suggestedTakeProfit: number;
+  isTracked: boolean;
+}
+
+export interface MarketScanReport {
+  lastScannedAt: number;
+  totalFuturesScanned: number;
+  liquidPairsCount: number;
+  bullishExplosiveCount: number;
+  bearishExplosiveCount: number;
+  topLongs: ExplosiveOpportunity[];
+  topShorts: ExplosiveOpportunity[];
+  marketBreadth: {
+    advancersCount: number;
+    declinersCount: number;
+    overallBias: 'BULLISH_DOMINANCE' | 'BEARISH_DOMINANCE' | 'BALANCED';
+  };
+  autoRotateExplosivePairs: boolean;
+  activeTrackedCount: number;
+}
+

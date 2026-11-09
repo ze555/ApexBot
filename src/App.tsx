@@ -3,6 +3,7 @@ import { Header } from './components/Header';
 import { BTCCompass } from './components/BTCCompass';
 import { ActivePositions } from './components/ActivePositions';
 import { PairScanner } from './components/PairScanner';
+import { ExplosiveMarketRadar } from './components/ExplosiveMarketRadar';
 import { ForensicAuditLog } from './components/ForensicAuditLog';
 import { ClosedTradesHistory } from './components/ClosedTradesHistory';
 import { ExpectancyMathModal } from './components/ExpectancyMathModal';
@@ -17,6 +18,7 @@ import {
   PlatformSettings,
   SystemErrorLog,
   SystemHealthState,
+  MarketScanReport,
 } from './types/quant';
 
 export default function App() {
@@ -100,6 +102,8 @@ export default function App() {
     uptimeSeconds: 0,
   });
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [marketScanReport, setMarketScanReport] = useState<MarketScanReport | null>(null);
+  const [isMarketScanning, setIsMarketScanning] = useState(false);
 
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setNotification({ message, type });
@@ -109,7 +113,7 @@ export default function App() {
   // Poll backend endpoints
   const fetchAllData = useCallback(async () => {
     try {
-      const [btcRes, pairsRes, posRes, tradesRes, logsRes, statsRes, settingsRes, errorsRes] = await Promise.all([
+      const [btcRes, pairsRes, posRes, tradesRes, logsRes, statsRes, settingsRes, errorsRes, marketScanRes] = await Promise.all([
         fetch('/api/market-context'),
         fetch('/api/pairs'),
         fetch('/api/positions'),
@@ -118,6 +122,7 @@ export default function App() {
         fetch('/api/stats'),
         fetch('/api/settings'),
         fetch('/api/system-errors'),
+        fetch('/api/market-scan'),
       ]);
 
       if (btcRes.ok) setBtcContext(await btcRes.json());
@@ -127,6 +132,7 @@ export default function App() {
       if (logsRes.ok) setAuditLogs(await logsRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
       if (settingsRes.ok) setSettings(await settingsRes.json());
+      if (marketScanRes.ok) setMarketScanReport(await marketScanRes.json());
       if (errorsRes.ok) {
         const errorData = await errorsRes.json();
         setSystemErrors(errorData.errors || []);
@@ -277,6 +283,66 @@ export default function App() {
     }
   };
 
+  const handleRefreshMarketScan = async () => {
+    setIsMarketScanning(true);
+    try {
+      const res = await fetch('/api/market-scan/refresh', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.report) {
+          setMarketScanReport(data.report);
+          showNotification(`تم فحص ${data.report.totalFuturesScanned} زوج فيوتشرز واستخراج أفضل العملات الانفجارية.`, 'success');
+        }
+      }
+    } catch {
+      showNotification('تعذر فحص السوق حالياً.', 'error');
+    } finally {
+      setIsMarketScanning(false);
+    }
+  };
+
+  const handleTrackSymbol = async (symbol: string, action: 'track' | 'untrack') => {
+    try {
+      const res = await fetch('/api/market-scan/track-symbol', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, action }),
+      });
+      if (res.ok) {
+        showNotification(
+          action === 'track'
+            ? `تمت إضافة ${symbol} إلى مصفوفة الرادار ومحرك القنص النشط.`
+            : `تمت إزالة ${symbol} من المراقبة النشطة.`,
+          'info'
+        );
+        fetchAllData();
+      }
+    } catch {
+      showNotification(`خطأ في تحديث مراقبة ${symbol}.`, 'error');
+    }
+  };
+
+  const handleToggleAutoRotate = async (enabled: boolean) => {
+    try {
+      const res = await fetch('/api/market-scan/auto-rotate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (res.ok) {
+        showNotification(
+          enabled
+            ? 'تم تفعيل التوجيه التلقائي للمحرك نحو العملات الأكثر انفجاراً في السوق.'
+            : 'تم إيقاف التوجيه التلقائي للمحرك.',
+          'info'
+        );
+        fetchAllData();
+      }
+    } catch {
+      showNotification('خطأ في تحديث إعدادات التوجيه التلقائي.', 'error');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
       {/* Institutional Header */}
@@ -322,6 +388,17 @@ export default function App() {
 
         {/* 2. Active Sniper Positions (Tick-by-Tick Mark-to-Market with Dynamic R-Gauge) */}
         <ActivePositions positions={activePositions} />
+
+        {/* 2.5 Binance Full-Market Explosive Radar (Early Impulse & Breakout Detection) */}
+        <ExplosiveMarketRadar
+          report={marketScanReport}
+          isLoading={isMarketScanning}
+          onRefreshScan={handleRefreshMarketScan}
+          onTrackSymbol={handleTrackSymbol}
+          onToggleAutoRotate={handleToggleAutoRotate}
+          onTriggerTestTrade={handleTriggerTestTrade}
+          isTriggering={isTriggering}
+        />
 
         {/* 3. Institutional Universe Scanner (Spatial Clearance & Conviction Matrix) */}
         <PairScanner
