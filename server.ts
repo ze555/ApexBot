@@ -551,8 +551,29 @@ function generateSyntheticCandles(symbol: string, count: number = 60): Candle[] 
   return candles;
 }
 
-// Fetch real Binance Futures data with automatic resilient fallback
+// Intelligent Network Optimization: 15-minute historical candles do not change every 5 seconds.
+// Cache candles for 45s while keeping live price updated in real-time, cutting requests by over 80%!
+const candleCacheTimestamps: Record<string, number> = {};
+const CANDLE_CACHE_TTL_MS = 45000;
+
+// Fetch real Binance Futures data with automatic resilient fallback & smart caching
 async function fetchBinanceDataForSymbol(symbol: string): Promise<Candle[]> {
+  const cached = candleCache[symbol];
+  const lastFetch = candleCacheTimestamps[symbol] || 0;
+  const isFresh = cached && cached.length >= 10 && (Date.now() - lastFetch < CANDLE_CACHE_TTL_MS);
+
+  if (isFresh) {
+    // Keep forming candle's close price synced to latest live price without re-downloading historical candles
+    const livePrice = latestTickerPrices[symbol];
+    if (livePrice && livePrice > 0) {
+      const activeCandle = cached[cached.length - 1];
+      activeCandle.close = livePrice;
+      activeCandle.high = Math.max(activeCandle.high, livePrice);
+      activeCandle.low = Math.min(activeCandle.low, livePrice);
+    }
+    return cached;
+  }
+
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3500);
@@ -566,7 +587,8 @@ async function fetchBinanceDataForSymbol(symbol: string): Promise<Candle[]> {
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
-        return data.map((d: any) => ({
+        candleCacheTimestamps[symbol] = Date.now();
+        const parsed: Candle[] = data.map((d: any) => ({
           timestamp: d[0],
           open: parseFloat(d[1]),
           high: parseFloat(d[2]),
@@ -577,6 +599,8 @@ async function fetchBinanceDataForSymbol(symbol: string): Promise<Candle[]> {
           count: parseInt(d[8], 10),
           takerBuyVolume: parseFloat(d[9]),
         }));
+        candleCache[symbol] = parsed;
+        return parsed;
       }
     } else {
       recordSystemError({
@@ -990,6 +1014,26 @@ function evaluatePairState(symbol: string, candles: Candle[]): PairMarketState {
 let marketScanCycleCounter = 0;
 async function runEngineCycle() {
   try {
+    // 0. Sync real live prices for all tracked pairs in 1 single high-efficiency batch call (weight: 2)
+    try {
+      const priceController = new AbortController();
+      const pTimeout = setTimeout(() => priceController.abort(), 2000);
+      const priceRes = await fetch('https://fapi.binance.com/fapi/v1/ticker/price', { signal: priceController.signal });
+      clearTimeout(pTimeout);
+      if (priceRes.ok) {
+        const pData = await priceRes.json();
+        if (Array.isArray(pData)) {
+          for (const item of pData) {
+            if (item.symbol && item.price) {
+              latestTickerPrices[item.symbol] = parseFloat(item.price);
+            }
+          }
+        }
+      }
+    } catch {
+      // Keep existing price cache gracefully without interruptions
+    }
+
     // 1. Update BTC Candles & Regime
     const btcCandles = await fetchBinanceDataForSymbol('BTCUSDT');
     candleCache['BTCUSDT'] = btcCandles;
